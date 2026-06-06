@@ -1,7 +1,7 @@
 // Sign + verify the OAuth 2.1 access tokens issued by /oauth/token.
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
-import { getKid, getPrivateKey, getPublicKey } from './keys.js';
-import { ACCESS_TOKEN_TTL_SECONDS, AUTH_CODE_TTL_SECONDS, OAUTH_ALGORITHM } from './config.js';
+import { getKid, getPrivateKey, getPublicKey } from './keys';
+import { ACCESS_TOKEN_TTL_SECONDS, AUTH_CODE_TTL_SECONDS, OAUTH_ALGORITHM } from './config';
 
 export interface AccessTokenClaims extends JWTPayload {
   sub: string; // user id

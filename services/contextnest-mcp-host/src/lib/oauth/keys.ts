@@ -2,7 +2,7 @@
 // The script `pnpm oauth:gen-keypair` prints values for OAUTH_PRIVATE_KEY,
 // OAUTH_PUBLIC_KEY, and OAUTH_KID; paste those into Vercel env.
 import { importPKCS8, importSPKI, exportJWK, type JWK, type KeyObject } from 'jose';
-import { OAUTH_ALGORITHM } from './config.js';
+import { OAUTH_ALGORITHM } from './config';
 
 function requireEnv(name: string): string {
   const v = process.env[name];
