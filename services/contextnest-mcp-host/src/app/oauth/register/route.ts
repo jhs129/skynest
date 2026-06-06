@@ -3,6 +3,15 @@ import crypto from 'node:crypto';
 import { registerClient } from '@/lib/oauth/clients';
 
 export async function POST(req: NextRequest) {
+  const registrationSecret = process.env.OAUTH_REGISTRATION_SECRET;
+  if (registrationSecret) {
+    const authHeader = req.headers.get('authorization') ?? '';
+    const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (provided !== registrationSecret) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+  }
+
   const body = (await req.json()) as { client_name?: string; redirect_uris?: string[] };
   const { client_name, redirect_uris } = body;
 
