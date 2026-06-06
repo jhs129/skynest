@@ -2,13 +2,23 @@
 // Clients are registered via POST /oauth/register (RFC 7591 dynamic registration).
 // This is intentionally in-memory; for multi-instance deployments swap for a
 // persistent store backed by Vercel KV or similar.
+//
+// Stored on globalThis so Next.js hot-reload in dev doesn't wipe registered
+// clients mid-flow (the GitHub OAuth round-trip takes long enough to trigger
+// a module re-evaluation between registration and authorization).
 
 export interface OAuthClientRecord {
   name: string;
   redirectUris: string[];
 }
 
-const clients = new Map<string, OAuthClientRecord>();
+declare global {
+  // eslint-disable-next-line no-var
+  var __oauthClients: Map<string, OAuthClientRecord> | undefined;
+}
+
+const clients: Map<string, OAuthClientRecord> =
+  globalThis.__oauthClients ?? (globalThis.__oauthClients = new Map());
 
 export function registerClient(clientId: string, record: OAuthClientRecord): void {
   clients.set(clientId, record);
