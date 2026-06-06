@@ -1,0 +1,12 @@
+id: onboarding.basics
+label: "Onboarding Basics"
+description: "Essential onboarding materials for new hires"
+query: "#onboarding + type:document"
+includes:
+  - "contextnest://nodes/architecture-overview"
+filters:
+  node_types:
+    - document
+audiences:
+  - internal
+  - agent

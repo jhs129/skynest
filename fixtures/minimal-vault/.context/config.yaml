@@ -1,0 +1,19 @@
+version: 1
+name: "Test Vault"
+description: "Minimal vault for testing"
+defaults:
+  status: draft
+folders:
+  nodes:
+    description: "Test documents"
+  sources:
+    description: "Test source nodes"
+servers:
+  jira:
+    url: "https://mcp.atlassian.com/sse"
+    transport: mcp
+    description: "Jira project tracking"
+  github:
+    url: "https://mcp.github.com/sse"
+    transport: mcp
+    description: "GitHub repository data"
