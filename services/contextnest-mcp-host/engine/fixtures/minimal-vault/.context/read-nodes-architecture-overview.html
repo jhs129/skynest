@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture Overview — Test Vault</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+:root {
+  --primary: #2B1C50;
+  --secondary: #6366F1;
+  --accent: #F36F21;
+  --midnight: #1E1B4B;
+  --surface: #FAFAFA;
+  --border: #E2E8F0;
+  --text: #1A1A2E;
+  --text-muted: #64748B;
+  --code-bg: #F1F5F9;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--text);
+  background: var(--surface);
+  line-height: 1.7;
+  padding: 0;
+}
+.header {
+  background: linear-gradient(135deg, var(--primary), var(--midnight));
+  color: white;
+  padding: 2rem 2rem 1.5rem;
+}
+.header .vault-name {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+  margin-bottom: 0.5rem;
+}
+.header h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0;
+}
+.header .doc-path {
+  font-size: 0.85rem;
+  opacity: 0.6;
+  margin-top: 0.25rem;
+  font-family: monospace;
+}
+.container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+.meta-panel {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 2rem;
+}
+.meta-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.meta-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
+.meta-key {
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  width: 120px;
+}
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.status-published { background: #DCFCE7; color: #166534; }
+.status-draft { background: #FEF3C7; color: #92400E; }
+.type-skill { background: #EDE9FE; color: #5B21B6; }
+.type-document { background: #DBEAFE; color: #1E40AF; }
+.type-source { background: #FEE2E2; color: #991B1B; }
+.type-snippet { background: #F0FDF4; color: #166534; }
+.type-glossary { background: #FDF4FF; color: #86198F; }
+.type-persona { background: #FFF7ED; color: #9A3412; }
+.type-prompt { background: #F0F9FF; color: #075985; }
+.type-tool { background: #F8FAFC; color: #334155; }
+.type-reference { background: #F1F5F9; color: #475569; }
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  background: var(--code-bg);
+  border-radius: 3px;
+  font-size: 0.8rem;
+  color: var(--secondary);
+  font-weight: 500;
+  margin-right: 0.25rem;
+}
+.content { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 2rem 2.5rem; }
+.content h1 { font-size: 1.5rem; margin: 1.5rem 0 0.75rem; color: var(--primary); border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+.content h1:first-child { margin-top: 0; }
+.content h2 { font-size: 1.25rem; margin: 1.5rem 0 0.5rem; color: var(--primary); }
+.content h3 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; color: var(--text); }
+.content h4, .content h5, .content h6 { font-size: 1rem; margin: 1rem 0 0.5rem; }
+.content p { margin: 0.75rem 0; }
+.content ul, .content ol { margin: 0.5rem 0; padding-left: 1.75rem; }
+.content li { margin: 0.25rem 0; }
+.content code {
+  background: var(--code-bg);
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.88em;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+}
+.content pre {
+  background: var(--midnight);
+  color: #E2E8F0;
+  padding: 1rem 1.25rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1rem 0;
+  line-height: 1.5;
+}
+.content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: 0.85rem;
+}
+.content blockquote {
+  border-left: 3px solid var(--secondary);
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  color: var(--text-muted);
+  background: #F8FAFC;
+  border-radius: 0 4px 4px 0;
+}
+.content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+.content th, .content td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.content th { background: var(--code-bg); font-weight: 600; }
+.content hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+.content a { color: var(--secondary); text-decoration: none; }
+.content a:hover { text-decoration: underline; }
+.content input[type="checkbox"] { margin-right: 0.4rem; }
+.meta-table ul { list-style: none; padding: 0; margin: 0; }
+.meta-table li { padding: 0.15rem 0; }
+.meta-table li::before { content: "\26A0\FE0F "; }
+.footer {
+  text-align: center;
+  padding: 2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.footer a { color: var(--secondary); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="vault-name">Test Vault</div>
+  <h1>Architecture Overview</h1>
+  <div class="doc-path">nodes/architecture-overview.md</div>
+</div>
+<div class="container">
+<div class="meta-panel">
+<table class="meta-table"><tr><td class="meta-key">Type</td><td><span class="badge type-document">document</span></td></tr>
+<tr><td class="meta-key">Status</td><td><span class="badge status-published">published</span></td></tr>
+<tr><td class="meta-key">Version</td><td>v1</td></tr>
+<tr><td class="meta-key">Tags</td><td><span class="tag">#engineering</span> <span class="tag">#architecture</span></td></tr>
+<tr><td class="meta-key">Author</td><td>jane.smith@example.com</td></tr>
+<tr><td class="meta-key">Created</td><td>1/10/2024</td></tr></table>
+</div>
+<div class="content">
+<h1 id="architecture-overview">Architecture Overview</h1>
+
+<p>This document describes the platform architecture.</p>
+
+<h2 id="components">Components</h2>
+
+<p>The platform consists of three main services.</p>
+
+<h2 id="data-flow">Data Flow</h2>
+
+<p>Data flows from the API gateway through the service mesh.</p>
+</div>
+</div>
+<div class="footer">
+  <a href="https://promptowl.ai">PromptOwl</a> &middot; Context Nest &middot; <a href="https://discord.gg/fxcSQ5gq">Discord</a>
+</div>
+</body>
+</html>
