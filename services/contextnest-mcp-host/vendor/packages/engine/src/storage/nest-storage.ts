@@ -119,7 +119,7 @@ export class NestStorage {
           !f.includes("node_modules/") &&
           !f.includes("/.versions/") &&
           !f.includes("/.context/") &&
-          !f.endsWith("/INDEX.md") &&
+          f !== "INDEX.md" && !f.endsWith("/INDEX.md") &&
           f !== "CONTEXT.md" &&
           f !== "context.yaml" &&
           // skip dot-prefixed path segments (hidden dirs)
