@@ -1,9 +1,0 @@
-node_modules/
-dist/
-*.tsbuildinfo
-.DS_Store
-local_vault
-.claude/
-CLAUDE.md
-.internal/
-.env
