@@ -74,8 +74,9 @@ export class BlobStorageProvider implements StorageProvider {
     try {
       await head(this.key(path));
       return true;
-    } catch {
-      return false;
+    } catch (err: unknown) {
+      if ((err as { status?: number }).status === 404) return false;
+      throw err;
     }
   }
 }
