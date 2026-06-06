@@ -13,7 +13,7 @@ export async function resolveServerUrls(): Promise<{
   if (!host) {
     throw new Error('Missing host header');
   }
-  const proto = h.get('x-forwarded-proto') ?? 'https';
+  const proto = h.get('x-forwarded-proto') ?? (host?.startsWith('localhost') || host?.startsWith('127.') ? 'http' : 'https');
   const baseUrl = new URL(`${proto}://${host}`);
   return {
     baseUrl,
