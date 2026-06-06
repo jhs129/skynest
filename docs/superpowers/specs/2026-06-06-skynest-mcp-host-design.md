@@ -1,28 +1,39 @@
 # Skynest Service 1 — Hosted Context Nest MCP Host: Design Spec
 
 **Date:** 2026-06-06
-**Status:** Approved
+**Status:** Approved (rev 2 — vault sync factory pattern, no hardcoded accounts, vendor scope constraint)
 **Scope:** Service 1 only (MCP host + GitHub OAuth + Vercel Blob vault). Service 2 (read.ai webhook ingest) is a follow-on spec.
 
 ---
 
 ## Problem
 
-John's Context Nest vault runs locally on his Mac over stdio, synced to the team via OneDrive. This has no always-on story, no remote access, no per-user attribution, and falls apart the moment his Mac is offline. The goal is a Vercel-hosted MCP server that any team member can connect to from Claude Code with their GitHub account — always available, version-controlled, with every write attributed to the person who made it.
+A Context Nest vault runs locally over stdio, synced to the team via OneDrive. This has no always-on story, no remote access, no per-user attribution, and falls apart the moment the host machine is offline. The goal is a Vercel-hosted MCP server that any team member can connect to from Claude Code with their GitHub account — always available, version-controlled, with every write attributed to the person who made it.
 
 ---
 
 ## Constraints
 
 - **No persistent filesystem on Vercel.** The upstream `PromptOwl/ContextNest` engine writes to a local vault directory. Vercel Functions have only an ephemeral per-invocation `/tmp` with no shared state across instances.
-- **AGPL-3.0.** The engine is AGPL-licensed. Hosting it means our fork's modifications must be publicly available, or covered by a commercial license from PromptOwl.
+- **AGPL-3.0.** The engine is AGPL-licensed. Hosting it means our fork's modifications must be publicly available, or covered by a commercial license from PromptOwl. Because the fork must be public, **no account names, repository URLs, or deployment-specific values may be hardcoded in any file under `vendor/`** (or anywhere in this repo). All such values come from environment variables.
 - **No binary spawn.** The `contextnest-mcp` stdio binary cannot be spawned from a Vercel Function. We must import the engine as a library.
 
 ---
 
 ## Approach
 
-Fork `PromptOwl/ContextNest` → `jhs129/ContextNest` (vendored in this repo at `services/contextnest-mcp-host/vendor/` via `git subtree`). Adapt the engine's storage layer with a **Storage Provider / Factory** abstraction so the same engine logic runs on Vercel. Production storage is **Vercel Blob**. Version history and per-user attribution are handled by the **GitHub REST API** committing to `jhs129/contextnest-vault`. The MCP server is a **Next.js App Router** app using `mcp-handler`, with **GitHub OAuth 2.1** ported from `jhs129/roadmap`.
+Fork `PromptOwl/ContextNest` (vendored in this repo at `services/contextnest-mcp-host/vendor/` via `git subtree`). Adapt the engine's storage layer with a **Storage Provider / Factory** abstraction so the same engine logic runs on Vercel. Production storage is **Vercel Blob**. Version history and per-user attribution are handled by a **Git Vault Sync** layer — itself abstracted behind a **GitVaultSyncProvider / Factory** so the backing Git host (GitHub, GitLab, etc.) is pluggable. The MCP server is a **Next.js App Router** app using `mcp-handler`, with **GitHub OAuth 2.1** ported from the reference roadmap implementation.
+
+---
+
+## Vendor Subtree Scope Constraint
+
+**Changes to `vendor/` are strictly limited to the storage abstraction.** The only modifications permitted in `vendor/packages/engine/` are:
+
+1. The new `storage/` directory (interface, factory, providers, refactored `NestStorage`).
+2. Making `NestStorage`'s methods `async` and updating its four collaborators to `await` them.
+
+No skynest application logic (Git vault sync, OAuth wiring, MCP tool registration, Vercel-specific config) belongs in the vendor tree. Those live entirely in `src/`. This keeps the vendor diff minimal, reviewable against upstream, and free of any deployment-specific or account-specific values.
 
 ---
 
@@ -31,10 +42,10 @@ Fork `PromptOwl/ContextNest` → `jhs129/ContextNest` (vendored in this repo at 
 ```
 services/contextnest-mcp-host/
   vendor/                                   # ContextNest fork (git subtree, PromptOwl/ContextNest main)
-    packages/engine/src/                    # engine source — storage refactor lands here
+    packages/engine/src/storage/            # ONLY vendor change — storage abstraction
     packages/mcp-server/                    # reference only; not used at runtime
     packages/cli/                           # reference only; not used at runtime
-  src/                                      # Next.js App Router (all new code)
+  src/                                      # Next.js App Router (all skynest-specific code)
     app/
       api/mcp/route.ts
       oauth/authorize/route.ts
@@ -51,26 +62,31 @@ services/contextnest-mcp-host/
         auth.ts
         tools.ts
       vault/
-        blob.ts
-        github.ts
-        index.ts
+        storage/
+          blob.ts                           # BlobStorageProvider (Vercel Blob)
+        sync/
+          git-vault-sync-provider.ts        # GitVaultSyncProvider interface
+          git-vault-sync-factory.ts         # createGitVaultSyncProvider(config)
+          providers/
+            github-vault-sync-provider.ts   # GitHub REST API implementation
+        index.ts                            # createEngine(userToken) → configured NestEngine
   package.json
   tsconfig.json
   .env.example
 scripts/
-  init-vault.sh                             # one-time: local vault dir → jhs129/contextnest-vault
+  init-vault.sh                             # one-time: local vault dir → remote git repo (provider-agnostic)
   setup-fork.sh                             # already run; sets up git subtree
 ```
 
 ---
 
-## Section 1 — Storage Layer Refactor (vendor changes)
+## Section 1 — Storage Layer Refactor (vendor-only changes)
 
 ### Current state
 
 `vendor/packages/engine/src/storage.ts` exports `NestStorage`, a class that calls `node:fs` directly. It is instantiated once and shared by `GraphQueryEngine`, `PackLoader`, `VersionManager`, and `CheckpointManager`. Secondary fs writers exist in `checkpoint.ts`, `index-generator.ts`, and `index-md-generator.ts` — these must also route through the provider.
 
-### Target structure
+### Target structure (vendor changes only)
 
 ```
 vendor/packages/engine/src/storage/
@@ -94,11 +110,11 @@ interface StorageProvider {
 }
 ```
 
-Paths are always vault-relative (e.g. `nodes/my-doc.md`, `.context/config.yaml`). The provider is responsible for translating to absolute filesystem paths or Blob keys.
+Paths are always vault-relative (e.g. `nodes/my-doc.md`, `.context/config.yaml`). The provider translates to absolute filesystem paths or Blob keys.
 
 ### StorageFactory
 
-`createStorageProvider(config: { backend: 'fs' | 'blob'; vaultPath?: string })` returns the correct implementation. Selected by `CONTEXTNEST_STORAGE` env var at runtime — `'fs'` is the default for local dev and upstream compatibility, `'blob'` for Vercel.
+`createStorageProvider(config: { backend: 'fs' | 'blob'; vaultPath?: string })` returns the correct implementation. Selected by `CONTEXTNEST_STORAGE` env var — `'fs'` is the default for local dev and upstream compatibility, `'blob'` for Vercel. No account or repository names appear in the factory or any provider.
 
 ### NestStorage changes
 
@@ -116,31 +132,65 @@ Thin wrapper around `node:fs/promises`. Preserves upstream behavior exactly. Use
 
 ### BlobStorageProvider
 
-Uses `@vercel/blob` client (`BLOB_READ_WRITE_TOKEN`). Key scheme: `{vaultPrefix}/{vault-relative-path}` where `vaultPrefix` defaults to `vault` (configurable via `CONTEXTNEST_BLOB_PREFIX`). `list(prefix)` uses Vercel Blob's `list({ prefix })` API. `read` returns `null` on a 404. All operations are async network calls — no in-memory caching at the provider level. Because each MCP tool call creates a fresh engine instance (via `createEngine`) and the instance is discarded after the call, there is no stale in-process cache to worry about across concurrent requests. If read performance becomes a bottleneck, a Vercel Edge Config or short-TTL KV cache can be added above the provider without changing the interface.
+Uses `@vercel/blob` client (`BLOB_READ_WRITE_TOKEN`). Key scheme: `{vaultPrefix}/{vault-relative-path}` where `vaultPrefix` is read from `CONTEXTNEST_BLOB_PREFIX` (no default hardcoded). `list(prefix)` uses Vercel Blob's `list({ prefix })` API. `read` returns `null` on a 404. All operations are async network calls — no in-memory caching at the provider level. Because each MCP tool call creates a fresh engine instance (via `createEngine`) and the instance is discarded after the call, there is no stale in-process cache to worry about across concurrent requests. If read performance becomes a bottleneck, a short-TTL KV cache can be added above the provider without changing the interface.
 
 ---
 
-## Section 2 — GitHub Vault Sync
+## Section 2 — Git Vault Sync (src only — not in vendor)
 
-`src/lib/vault/github.ts` exports `GitHubVaultSync`.
+Version history and per-user attribution are handled by a **Git Vault Sync** layer that lives entirely in `src/lib/vault/sync/`. It is abstracted behind a provider interface so the backing Git host is pluggable (GitHub today; GitLab, Gitea, or others in future deployments).
 
-**Responsibility:** after a successful Blob write, record the change as a GitHub commit on `jhs129/contextnest-vault` using the session user's OAuth token. This is what gives the vault its version history and per-user attribution.
+### GitVaultSyncProvider interface
 
-**API call:** `PUT /repos/{owner}/{repo}/contents/{path}` — creates or updates a file, requires the current file SHA for updates. The class maintains an in-memory SHA cache per session (populated lazily on first write to a given path; invalidated on delete).
+```ts
+interface GitVaultSyncProvider {
+  /** Record a file write as a versioned commit attributed to the given user. */
+  commitFile(params: {
+    path: string;
+    content: Buffer;
+    message: string;
+    userToken: string;
+  }): Promise<void>;
 
-**Attribution:** the GitHub API commit is made with the user's own token, so GitHub natively attributes the commit to their account — no `--author` flag needed.
+  /** Record a file deletion as a versioned commit. */
+  deleteFile(params: {
+    path: string;
+    message: string;
+    userToken: string;
+  }): Promise<void>;
+}
+```
 
-**Error handling:** GitHub sync failures are logged but do not fail the MCP tool call. The Blob write is the authoritative operation; GitHub is the version history layer. A background reconciliation mechanism (future work) can detect and replay missed commits.
+The interface deliberately hides Git provider details. `userToken` is the session user's OAuth token for the chosen provider; attribution is handled inside the implementation.
 
-**Write serialization:** a per-session async queue (a simple Promise chain) ensures writes for a given session are serialized. Concurrent writes from different sessions are naturally independent (different tokens, different commit sequences).
+### GitVaultSyncFactory
+
+`createGitVaultSyncProvider(config: { provider: 'github' | string }): GitVaultSyncProvider`
+
+Selected by `VAULT_SYNC_PROVIDER` env var (default `'github'`). New providers are added by implementing the interface and registering them in the factory — no changes required outside the factory file.
+
+### GitHubVaultSyncProvider
+
+Implements `GitVaultSyncProvider` using the GitHub REST API `PUT /repos/{owner}/{repo}/contents/{path}`. All repository coordinates come from environment variables — no account or repo names are hardcoded:
+
+- `VAULT_REPO` — `owner/repo` (e.g. the vault repository)
+- `VAULT_BRANCH` — target branch (default `main`)
+
+**SHA management:** GitHub's Contents API requires the current file SHA for updates. The provider maintains an in-memory SHA cache per instance (populated lazily on first write; invalidated on delete). The cache is lost on cold start — the first write after a cold start fetches the current SHA via `GET /contents/{path}`, adding one extra API call. Acceptable at this scale.
+
+**Attribution:** commits are made with the session user's own token; GitHub natively attributes the commit to their account.
+
+**Error handling:** sync failures are logged but do not fail the MCP tool call. The Blob write is the authoritative operation; Git history is the versioning layer. The SHA cache is invalidated on failure so the next attempt re-fetches.
+
+**Write serialization:** a per-session async queue (simple Promise chain) serializes writes within a session. Concurrent writes from different sessions are independent.
 
 ---
 
-## Section 3 — Engine Factory
+## Section 3 — Engine Factory (src only)
 
 `src/lib/vault/index.ts` exports `createEngine(userToken: string): NestEngine`.
 
-Constructs a `BlobStorageProvider` (or `FsStorageProvider` in dev), wraps it in `NestStorage`, attaches a `GitHubVaultSync` instance for the given user token, and returns a fully configured engine instance. Each MCP tool call creates one engine instance — stateless across requests, correct attribution per call.
+Constructs a `BlobStorageProvider` (or `FsStorageProvider` in dev via `CONTEXTNEST_STORAGE`), wraps it in `NestStorage`, and creates a `GitVaultSyncProvider` for the given user token using the factory. Returns a fully configured engine instance. Each MCP tool call creates one engine instance — stateless across requests, correct attribution per call.
 
 ---
 
@@ -149,7 +199,7 @@ Constructs a `BlobStorageProvider` (or `FsStorageProvider` in dev), wraps it in 
 ### MCP route (`src/app/api/mcp/route.ts`)
 
 Uses `createMcpHandler` from `mcp-handler`. All Context Nest tools are registered in `src/lib/mcp/tools.ts`. Each tool handler:
-1. Extracts the user's GitHub token from `extra.authInfo`.
+1. Extracts the user's OAuth token from `extra.authInfo`.
 2. Calls `createEngine(userToken)` to get a scoped engine instance.
 3. Invokes the relevant engine method.
 4. Returns the result as JSON.
@@ -158,11 +208,11 @@ The route is wrapped with `withMcpAuth(handler, verifyMcpToken, { required: true
 
 ### Auth middleware (`src/lib/mcp/auth.ts`)
 
-Ported from `jhs129/roadmap/src/lib/mcp/auth.ts`. Validates the RS256 JWT Bearer token, returns `AuthInfo` with `extra: { userId, githubToken, githubLogin }`. The GitHub OAuth token (with `repo` scope) is stored in the JWT's `extra` claims so tool handlers can use it for vault writes without a database round-trip.
+Ported from the roadmap reference implementation. Validates the RS256 JWT Bearer token, returns `AuthInfo` with `extra: { userId, userToken, userLogin }`. The OAuth token (with `repo` scope for GitHub) is stored in the JWT's `extra` claims so tool handlers can use it for vault writes without a database round-trip.
 
 ### OAuth 2.1 server (authorize / token / register / .well-known)
 
-Ported directly from `jhs129/roadmap` with one provider change: `auth.config.ts` uses `GitHub({ clientId, clientSecret })` from `next-auth/providers/github` instead of `Google`. The `repo` scope is requested so the user's token can push to `contextnest-vault`. Everything else (PKCE, RS256 JWT issuance, dynamic client registration, refresh token rotation, `.well-known` metadata endpoints) is identical to roadmap.
+Ported directly from the roadmap reference with one provider change: `auth.config.ts` uses `GitHub({ clientId, clientSecret })` from `next-auth/providers/github` instead of Google. The `repo` scope is requested so the user's token has write access to the vault repository. Everything else (PKCE, RS256 JWT issuance, dynamic client registration, refresh token rotation, `.well-known` metadata endpoints) is identical to the reference.
 
 ---
 
@@ -170,10 +220,10 @@ Ported directly from `jhs129/roadmap` with one provider change: `auth.config.ts`
 
 All Context Nest tools are registered in `src/lib/mcp/tools.ts`. They map 1:1 to the engine's existing method surface — no tool logic is reimplemented. The full list from `vendor/packages/mcp-server/src/index.ts` is:
 
-**Read tools** (Blob only, no GitHub sync):
+**Read tools** (Blob only, no Git sync):
 `resolve`, `search`, `get_document`, `list_documents`, `read_index`, `read_pack`, `read_version`, `list_checkpoints`, `list_suggestions`, `get_ui_context` (returns the current vault config + active context summary used to prime an AI session)
 
-**Write tools** (Blob write + GitHub sync):
+**Write tools** (Blob write + Git vault sync):
 `create_document`, `update_document`, `delete_document`, `publish_document`, `create_version`, `discard_drafts`, `approve_suggestion`, `reject_suggestion`, `stage_drift_suggestion`
 
 **Stateless utility tools** (no storage):
@@ -185,14 +235,14 @@ Tool input schemas are copied from the upstream MCP server package and validated
 
 ## Section 6 — Vault Init Script
 
-`scripts/init-vault.sh` is a one-time setup script:
-1. Takes a local vault directory path as `$1`.
-2. `git init` + initial commit if not already a git repo.
-3. `gh repo create jhs129/contextnest-vault --private` (skips if repo exists).
-4. `git remote add origin` + `git push -u origin main`.
-5. Prints next steps (add team collaborators, link Blob store, run Vercel deploy).
+`scripts/init-vault.sh` is a one-time setup script. It does not hardcode any account or repository names — all values are passed as arguments or read from environment variables:
 
-Requires: `gh` CLI (authenticated), `git`. Safe to re-run (each step is guarded).
+1. Takes a local vault directory path as `$1` and a target remote URL as `$2` (or reads `VAULT_REPO_URL` from the environment).
+2. `git init` + initial commit if not already a git repo.
+3. `git remote add origin <url>` + `git push -u origin main`.
+4. Prints next steps (add collaborators on the Git host, link Vercel Blob store, run Vercel deploy).
+
+Requires: `git`, network access. Safe to re-run (each step is guarded).
 
 ---
 
@@ -202,13 +252,16 @@ Requires: `gh` CLI (authenticated), `git`. Safe to re-run (each step is guarded)
 |---|---|---|
 | `CONTEXTNEST_STORAGE` | No | `blob` (default on Vercel) or `fs` (local dev) |
 | `CONTEXTNEST_VAULT_PATH` | Dev only | Local vault dir when `CONTEXTNEST_STORAGE=fs` |
-| `BLOB_READ_WRITE_TOKEN` | Prod | Vercel Blob store token (auto-provided when store is linked) |
-| `CONTEXTNEST_VAULT_REPO` | Yes | `owner/repo` of the GitHub vault (e.g. `jhs129/contextnest-vault`) |
+| `CONTEXTNEST_BLOB_PREFIX` | Yes (prod) | Vercel Blob key prefix for vault files (e.g. `vault`) |
+| `BLOB_READ_WRITE_TOKEN` | Yes (prod) | Vercel Blob store token (auto-provided when store is linked) |
+| `VAULT_SYNC_PROVIDER` | No | Git sync backend: `github` (default), extensible |
+| `VAULT_REPO` | Yes | `owner/repo` of the vault repository on the Git host |
+| `VAULT_BRANCH` | No | Vault branch to commit to (default `main`) |
 | `GITHUB_CLIENT_ID` | Yes | GitHub OAuth App client ID |
 | `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth App client secret |
 | `AUTH_SECRET` | Yes | NextAuth secret (random 32-byte string) |
-| `NEXTAUTH_URL` | Dev only | `http://localhost:3000` |
-| `OAUTH_JWT_PRIVATE_KEY` | Yes | RS256 private key for MCP access token signing (generate with `scripts/oauth-gen-keypair.ts` from roadmap) |
+| `NEXTAUTH_URL` | Dev only | Base URL of the app, e.g. `http://localhost:3000` |
+| `OAUTH_JWT_PRIVATE_KEY` | Yes | RS256 private key for MCP access token signing |
 | `OAUTH_JWT_PUBLIC_KEY` | Yes | Corresponding RS256 public key |
 
 ---
@@ -216,10 +269,10 @@ Requires: `gh` CLI (authenticated), `git`. Safe to re-run (each step is guarded)
 ## Section 8 — Error Handling
 
 - **Blob not found:** `read()` returns `null`; engine surfaces as a "document not found" MCP error.
-- **GitHub sync failure:** logged to Vercel function logs; MCP tool call still succeeds. SHA cache is invalidated for the affected path so the next write re-fetches the current SHA.
+- **Git sync failure:** logged to Vercel function logs; MCP tool call still succeeds. SHA cache is invalidated for the affected path so the next write re-fetches.
 - **Invalid/expired MCP token:** `withMcpAuth` returns HTTP 401; Claude Code re-initiates OAuth flow.
-- **GitHub API rate limit (5000 req/hr for authenticated user):** at current usage (~20 team members, low write frequency) this is not a concern. Log `X-RateLimit-Remaining` headers; add exponential backoff retry on 429 in `GitHubVaultSync`.
-- **Concurrent writes (same user, same session):** serialized by per-session async queue in `GitHubVaultSync`. Different sessions are independent.
+- **Git API rate limit:** log rate-limit headers from the provider response; add exponential backoff retry on 429/503 in the provider implementation.
+- **Concurrent writes (same session):** serialized by per-session async queue in `GitVaultSyncProvider`. Different sessions are independent.
 
 ---
 
@@ -227,28 +280,29 @@ Requires: `gh` CLI (authenticated), `git`. Safe to re-run (each step is guarded)
 
 **Unit (vendor engine):**
 - `FsStorageProvider` — existing upstream tests continue to pass against a tmp dir.
-- `BlobStorageProvider` — tested with `@vercel/blob` mock (jest mock or MSW).
+- `BlobStorageProvider` — tested with `@vercel/blob` mock (MSW or jest mock).
 - `NestStorage` — existing tests adapted to inject a `FsStorageProvider`.
 
 **Unit (Next.js app):**
-- `GitHubVaultSync` — mock `fetch`; assert correct `PUT /contents` payload and SHA cache behavior.
+- `GitHubVaultSyncProvider` — mock `fetch`; assert correct PUT payload and SHA cache behavior.
+- `GitVaultSyncFactory` — assert correct provider is returned for each `VAULT_SYNC_PROVIDER` value.
 - `verifyMcpToken` — test valid/expired/wrong-audience JWTs.
 - Each tool handler — mock `createEngine`; assert correct engine method called with correct args.
 
 **Integration:**
-- Two GitHub OAuth users each call `create_document` → assert two commits on `contextnest-vault` with distinct authors.
+- Two OAuth users each call `create_document` → assert two commits on the vault repo with distinct authors.
 - Read tools return documents created in prior write calls.
 
 **End-to-end:**
-- Connect Claude Code to the Vercel-hosted MCP → OAuth sign-in → create, update, search a document → verify commit appears in `contextnest-vault` with correct GitHub author.
+- Connect Claude Code to the Vercel-hosted MCP → OAuth sign-in → create, update, search a document → verify commit appears in the vault repo with correct author attribution.
 
 ---
 
 ## Open Items (Service 1 only)
 
-- **AGPL compliance:** confirm with PromptOwl whether hosting the fork with modifications satisfies AGPL by keeping the fork public (`jhs129/ContextNest`), or whether a commercial license is needed.
-- **Blob prefix per-team:** if skynest later serves multiple teams from one Vercel project, `CONTEXTNEST_BLOB_PREFIX` parameterizes which namespace each deployment reads/writes.
-- **SHA cache persistence:** the in-memory SHA cache is lost on function cold start. First write after cold start fetches the current SHA from GitHub — adds one extra API call. Acceptable at this scale; revisit if cold starts become frequent.
+- **AGPL compliance:** confirm with PromptOwl whether hosting the fork with modifications satisfies AGPL by keeping the fork's source public, or whether a commercial license is needed. The public repo constraint (no hardcoded values) is already enforced by the vendor scope rule above.
+- **Blob prefix per-team:** `CONTEXTNEST_BLOB_PREFIX` parameterizes the namespace; multiple teams can share one Vercel Blob store by using distinct prefixes.
+- **SHA cache cold-start cost:** first write after a cold start fetches the current SHA from the Git provider (~1 extra API call). Acceptable at current scale; a shared KV store (e.g. Upstash Redis via Vercel Marketplace) could persist the cache across instances if needed.
 
 ---
 
