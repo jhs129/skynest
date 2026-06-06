@@ -172,7 +172,7 @@ docs/
 - Upstream to fork: `github.com/PromptOwl/ContextNest` (AGPL-3.0) — TS monorepo (`packages/engine`, `packages/cli`, `packages/mcp-server`). Key seam: `packages/engine/src/storage.ts` (`NestStorage`), shared by `GraphQueryEngine`, `PackLoader`, `VersionManager`, `CheckpointManager`. Tool schemas + vault document format come from `packages/mcp-server` and `CONTEXT_NEST_SPEC.md` (spec is Apache-2.0).
 
 ## Deployment runbook (updated)
-1. **Fork upstream:** Fork `PromptOwl/ContextNest` → `jhs129/ContextNest`. Add it to Service 1 as a submodule under `vendor/contextnest` (and add `upstream` remote for future pulls).
+1. **Fork upstream:** Run `scripts/setup-fork.sh` to fork `PromptOwl/ContextNest` → `jhs129/ContextNest`, attach it as a submodule under `services/contextnest-mcp-host/vendor/contextnest`, add the `upstream` remote, and build the vendored engine. (Requires an authenticated `gh` CLI + network access to github.com.)
 2. **Adapt storage (Factory/Provider):** On the fork, refactor `NestStorage` to delegate to a `StorageProvider` chosen by `createStorageProvider()`; add `FsStorageProvider` (parity/tests) and `BlobStorageProvider` (`@vercel/blob`). Make `NestStorage` methods async and update engine collaborators to `await`. Confirm secondary writers (`checkpoint.ts`, index generators) route through the provider. Set `CONTEXTNEST_STORAGE=blob` on Vercel. Build/test both providers.
 3. **Vault → git:** Run `scripts/init-vault.sh <local-vault-path>` to push existing vault to new private repo `jhs129/contextnest-vault`; add team members as collaborators.
 4. **GitHub OAuth App:** Register one for Service 1 (callback = `https://<vercel-app>.vercel.app/api/auth/callback/github`), `repo` scope.
