@@ -1,4 +1,4 @@
-# Plan: Hosted Context Nest MCP + read.ai ingestion in Azure (git-backed, GitHub OAuth)
+# Plan: Hosted Context Nest MCP + read.ai ingestion on Vercel (git-backed, GitHub OAuth)
 
 > Intended home: the dedicated repo **`jhs129/skynest`** (this copy lives in `claude-jhsdc` only for transfer).
 
@@ -8,117 +8,130 @@
 
 **Current state:** On John's Mac the Context Nest MCP server runs locally over **stdio**, and the vault filesystem sits on a **drive mapped to OneDrive** that syncs to his team. Works locally, but has no always-on/remote/multi-user story.
 
-**Hard constraint:** Context Nest ([PromptOwl/ContextNest](https://github.com/PromptOwl/ContextNest), AGPL-3.0) ships a **stdio-only** MCP server (`@promptowl/contextnest-mcp-server`, binary `contextnest-mcp`, 14 tools incl. `create_document`/`update_document`/`delete_document`/`publish_document`) over a **local-filesystem markdown vault** (`CONTEXTNEST_VAULT_PATH`). No HTTP transport, no auth, no git, no Dockerfile. So the hosted/multi-user/git/attribution behavior must be **built as a wrapper** around it.
+**Hard constraint (revised):** The original plan proxied the `contextnest-mcp` stdio binary, but that binary requires a **local persistent filesystem** which is incompatible with Vercel's serverless model. Decision: **reimplement the 14 Context Nest tools natively in TypeScript** — no binary dependency. Vault files are stored in **Vercel Blob** as individual markdown objects. Versioning + per-user attribution is handled via the **GitHub REST API** (`PUT /repos/.../contents/...`), which creates commits natively using the user's OAuth token — no `git clone`, no `git push`, no filesystem needed.
 
-**Decisions confirmed by John:**
-- **Two hosted Azure services** (below).
-- The **MCP server is the single writer to git** — every write tool does `commit` + `push`, so context is always-available remotely *and* versioned.
-- **Writes are attributed per user** via **GitHub OAuth** sign-in (native GitHub attribution).
-- The **read.ai webhook is an MCP client** of the hosted MCP server (it submits notes *through* the server, never touching git/filesystem itself).
-- Users need **no git knowledge** — at most a **GitHub account** (used for OAuth + commit attribution).
+**Decisions confirmed:**
+- **Deployment: Vercel** (not Azure). Next.js App Router, same stack as `jhs129/roadmap`.
+- **Phasing: Service 1 first** (hosted MCP + GitHub OAuth + vault writes), then Service 2 (read.ai webhook ingest) as a follow-on spec/plan.
+- **Writes are attributed per user** via **GitHub OAuth** — user's own token with `repo` scope is used for GitHub API commits (native attribution). No central service account push.
+- **Vault storage: Vercel Blob** for file contents (individual markdown objects). **GitHub repo `jhs129/contextnest-vault`** remains the source of truth for version history; writes go through the GitHub API, not git CLI.
+- **Vault init script:** A one-time `scripts/init-vault.sh` in this repo takes a local vault directory and pushes it to a new private GitHub repo.
+- **OAuth: GitHub OAuth only** (no Google, no Microsoft). Port the full OAuth 2.1 implementation from `jhs129/roadmap` (authorize/token/register endpoints, RS256 JWTs, PKCE, `.well-known` metadata, `mcp-handler` middleware) and swap the provider from Google to GitHub.
+- **MCP transport: Next.js + `mcp-handler`** (same as roadmap). MCP tools exposed via `/api/mcp` route with `withMcpAuth` middleware.
+- **OneDrive:** demoted to optional passive backup; the hosted MCP is the access path going forward.
 
-**Outcome:** A git-backed Context Nest accessible over HTTPS by Claude Code (John now, ~20-person team later — same deployment, just add repo collaborators), with read.ai meetings auto-ingested and full per-user version history. This collapses the old OneDrive-distribution problem: the hosted MCP is the single front door, so **OneDrive is no longer load-bearing** (optional passive backup only).
-
-This is **greenfield**, and lives in the dedicated repo `jhs129/skynest` — separate from both `jhs129/claude-jhsdc` (CLI automation) and the `contextnest-vault` content repo. The file tree below is the **root of `skynest`**.
+**Open item (paused here):**
+- **Vault read path:** Should vault reads go through Vercel Blob (fast, ~0ms) or GitHub API (single source of truth, ~100–200ms latency per call)? Option A (Blob + GitHub API) vs Option C (GitHub API only) — to be decided when resuming.
 
 ---
 
-## Architecture
+## Architecture (updated)
 
 ```
    ┌──────────────────────────────────────────────────────────────────────┐
-   │ Service 1 — Hosted Context Nest MCP server (Azure Container App, on)   │
-   │   • HTTPS streamable-HTTP MCP transport (MCP TS SDK)                   │
-   │   • GitHub OAuth (server brokers GitHub as IdP) → per-user identity    │
-   │   • Proxies the 14 CN tools to an in-process stdio `contextnest-mcp`   │
-   │   • Vault = git clone on Azure Files volume (CONTEXTNEST_VAULT_PATH)   │
-   │   • WRITE tools → serialize → git pull → write → commit (--author=user)│
-   │                    → push (user's GitHub OAuth token)                  │
+   │ Service 1 — Hosted Context Nest MCP server (Vercel / Next.js)         │
+   │   • Next.js App Router, mcp-handler, /api/mcp route                   │
+   │   • GitHub OAuth 2.1 (ported from jhs129/roadmap)                     │
+   │   • 14 CN tools reimplemented natively in TypeScript (no binary)       │
+   │   • Vault files: Vercel Blob (read/write) + GitHub API (commit/history)│
+   │   • WRITE tools → Vercel Blob put → GitHub API PUT /contents           │
+   │                    (commit attributed to session user's GitHub token)   │
    └───────▲───────────────────────▲───────────────────────────┬───────────┘
-           │ MCP (GitHub OAuth)     │ MCP (service identity)    │ commit+push
+           │ MCP (GitHub OAuth)     │ MCP (service identity)    │ GitHub API
            │                        │                           ▼
    John's Claude Code      ┌────────┴───────────────┐   ┌───────────────────┐
    + 20-person team        │ Service 2 — read.ai    │   │ Private git repo  │
-   (each their own         │ webhook (Azure, on)    │   │ jhs129/           │
+   (each their own         │ webhook (Vercel, TBD)  │   │ jhs129/           │
     GitHub account →       │  • POST /webhooks/readai│  │ contextnest-vault │ ◀ SOURCE OF TRUTH
     attributed commits)    │  • HMAC + request_id    │  │ (team = collabs)  │
                            │  • transform payload    │  └───────────────────┘
    read.ai ──webhook────▶  │  • MCP client → create_ │
-   (meeting_end)           │    document as Read.ai  │
-                           │    bot identity         │
+   (meeting_end)           │    document (bot id)    │
                            └─────────────────────────┘
 ```
 
 ### Service 1 — Hosted Context Nest MCP server
-- **Custom HTTP MCP server** (MCP TypeScript SDK, `StreamableHTTPServerTransport`) running in an **Azure Container App** (min replicas 1, external HTTPS ingress).
-- **Tool layer:** spawns the stdio `contextnest-mcp` once as an in-process MCP **client**, and re-exposes all 14 tools over HTTP by **forwarding** each call. Preserves CN's parsing/versioning/integrity behavior verbatim — no tool reimplementation.
-- **Auth:** GitHub OAuth. The MCP server acts as an **OAuth broker/proxy** to a GitHub OAuth App: Claude Code initiates the MCP OAuth flow, the server federates to GitHub, obtains the user's identity (login, name, email) and a token with `repo` scope, and binds it to the session.
-- **Git on writes:** the forwarder **intercepts write tools** (`create_document`, `update_document`, `delete_document`, `publish_document`). After a successful write it runs, through a **single serialized queue** (to avoid git races): `git pull --rebase` → `git add -A` → `git commit --author="<user name> <user email>"` → `git push` using the **session user's GitHub OAuth token** (native attribution + per-user authorization via repo-collaborator access). On read tools, ensure the clone is reasonably fresh (periodic `git pull` / pull-on-miss).
-- **Vault** lives on an **Azure Files** volume mounted at `/vault` (`CONTEXTNEST_VAULT_PATH=/vault`), initialized as a clone of the source-of-truth repo.
+- **Next.js App Router** deployed on Vercel, using `mcp-handler` for the `/api/mcp` route.
+- **Tool layer:** 14 Context Nest tools reimplemented natively in TypeScript. No stdio binary. Tool categories:
+  - **Read:** `resolve`, `search`, `get_document`, `list_documents`, `read_index`, `read_pack`, `read_version`, `list_checkpoints` — read from Vercel Blob.
+  - **Write:** `create_document`, `update_document`, `delete_document`, `publish_document` — write to Vercel Blob, then commit via GitHub API with user attribution.
+  - **Utility:** `document_format`, `verify_integrity` — stateless validation.
+- **Auth:** GitHub OAuth 2.1, ported from `jhs129/roadmap`. Full PKCE + dynamic client registration + RS256 JWTs. The GitHub access token (with `repo` scope) is stored in the session and used for GitHub API write calls.
+- **Vault storage:** Vercel Blob stores vault files as markdown objects (key = relative vault path). GitHub repo `jhs129/contextnest-vault` stores version history via GitHub API commits.
 
-### Service 2 — read.ai webhook
-- Separate **Azure Container App** (or Function) — `POST /webhooks/readai`, **HMAC/shared-secret verify**, **`request_id` dedupe**, `GET /healthz`.
-- **Transforms** the read.ai payload → a Context Nest meeting node (frontmatter: `type: meeting`, `title`, `date` from `start_time`, `participants`, `platform`, `session_id`, `source: read.ai`; body: Summary → Action Items → Chapters → Transcript).
-- Acts as an **MCP client to Service 1**, authenticating with a dedicated **"Read.ai bot" service identity** (a machine GitHub account / pre-provisioned token, since the webhook can't do interactive OAuth), and calls **`create_document`**. Service 1 performs the commit/push attributed to the bot. The webhook touches **no git and no filesystem**.
-
-### Consumers
-- **John's local Claude Code** connects to Service 1 over HTTPS via GitHub OAuth (`claude mcp add --transport http contextnest https://<app-fqdn>/mcp`, then OAuth login). The local stdio MCP + OneDrive become optional.
-- **~20-person team (later, same deployment):** add each as a **collaborator** on `contextnest-vault`; they connect the same way. A **separate** clone of these two services against a separate vault repo serves a fully separate team — same parameterized infra.
+### Service 2 — read.ai webhook (follow-on, not in this spec)
+- Separate Vercel deployment (Next.js or serverless function).
+- `POST /webhooks/readai`, HMAC/shared-secret verify, `request_id` dedupe, `GET /healthz`.
+- Transforms read.ai payload → Context Nest meeting node; calls Service 1 `create_document` as "Read.ai bot" service identity.
 
 ---
 
-## New files (root of `skynest`)
+## File tree (Service 1, root of `skynest`)
+
 ```
-services/contextnest-mcp-host/      # Service 1
-  src/server.ts            # streamable-HTTP MCP server + OAuth middleware
-  src/auth-github.ts       # GitHub OAuth broker; session → {login,name,email,token}
-  src/cn-proxy.ts          # spawn stdio contextnest-mcp; forward all 14 tools
-  src/git-writer.ts        # serialized queue: pull→commit(--author)→push per write
-  src/config.ts
-  package.json             # @modelcontextprotocol/sdk, @promptowl/contextnest-mcp-server, simple-git, fastify
-  Dockerfile               # node:20 + git + contextnest-mcp
-services/contextnest-ingest/        # Service 2
-  src/server.ts            # webhook routes, HMAC, dedupe, health
-  src/transform.ts         # read.ai payload → CN node content
-  src/mcp-client.ts        # MCP client → Service 1 create_document (bot identity)
-  src/config.ts
-  package.json             # fastify, zod, @modelcontextprotocol/sdk
-  Dockerfile
-infra/
-  main.bicep               # ACR, Azure Files, Container Apps env + both apps, secrets/Key Vault
-  deploy.sh                # az CLI build→push→deploy (exponential-backoff retry per repo convention)
+services/contextnest-mcp-host/       # Service 1 — Next.js app
+  src/app/
+    api/
+      mcp/route.ts                   # mcp-handler, withMcpAuth, tool registration
+    oauth/
+      authorize/route.ts             # OAuth 2.1 authorize endpoint
+      token/route.ts                 # OAuth 2.1 token endpoint
+      register/route.ts              # Dynamic client registration
+    .well-known/
+      oauth-authorization-server/route.ts
+      oauth-protected-resource/route.ts
+      jwks.json/route.ts
+  src/lib/
+    oauth/                           # Ported from roadmap (jwt, keys, pkce, tokens, config, urls)
+    mcp/
+      tools.ts                       # 14 CN tool definitions
+      auth.ts                        # verifyMcpToken (GitHub OAuth JWT validation)
+      vault/
+        blob.ts                      # Vercel Blob read/write helpers
+        github.ts                    # GitHub API commit (PUT /contents, user token)
+        index.ts                     # Vault facade: get/put/delete/list
+    auth.ts                          # NextAuth config (GitHub provider only)
+    auth.config.ts
+  src/types/
+    vault.ts                         # VaultFile, DocumentMeta, etc.
+  package.json                       # next, mcp-handler, @vercel/blob, @auth/nextjs, jose, zod
+  .env.example
+scripts/
+  init-vault.sh                      # One-time: local vault dir → push to jhs129/contextnest-vault
+infra/                               # (placeholder — Vercel project config, env var docs)
 docs/
-  contextnest-azure-design.md   # this design, committed for the team
+  contextnest-vercel-design.md       # Final design doc (to be written)
 ```
-`.env.example` additions: `VAULT_REPO_URL`, `VAULT_REPO_BRANCH`, `CONTEXTNEST_VAULT_PATH=/vault`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `READAI_WEBHOOK_SECRET`, `READAI_BOT_TOKEN`, `MCP_HOST_URL`.
 
-### Tech stack
-- **Node 20 + TypeScript**, **pnpm** (house standard). Chosen because Service 1 wraps the Node `contextnest-mcp` in-process and the MCP **TypeScript SDK** is the reference implementation.
-- **Fastify** (HTTP), **`simple-git`** (git ops), **`zod`** (payload validation), **`@modelcontextprotocol/sdk`** (MCP client/server transports + OAuth).
+## Tech stack (updated)
+- **Next.js 15 App Router**, **pnpm**, **TypeScript** — same as roadmap.
+- **`mcp-handler`** for MCP HTTP transport.
+- **`@vercel/blob`** for vault file storage.
+- **GitHub REST API** (Octokit or raw fetch) for versioned commits.
+- **`@auth/nextjs`** (NextAuth v5) with GitHub provider for web session.
+- **`jose`** for RS256 JWT signing/verification.
+- **`zod`** for tool input validation.
 
----
+## Reference
+- OAuth 2.1 implementation: `jhs129/roadmap` — port authorize/token/register routes, JWT signing, mcp-handler auth middleware; swap `Google()` → `GitHub()` in NextAuth config.
+- Context Nest tool spec: `@promptowl/contextnest-mcp-server` (AGPL-3.0) — reference the 14 tool schemas and vault document format.
 
-## Deployment runbook
-1. **Vault → git:** `git init` the current OneDrive vault, push to new **private** repo `jhs129/contextnest-vault`; add team members as collaborators.
-2. **GitHub OAuth App:** register one for Service 1 (callback = `https://<mcp-app-fqdn>/oauth/callback`), `repo` scope; create the **Read.ai bot** machine account/token.
-3. **Provision Azure** (`infra/main.bicep` + `deploy.sh`, `az login` first): resource group, ACR, Azure Files share, Container Apps env, two Container Apps; secrets (OAuth client secret, webhook secret, bot token) in Container App secrets / Key Vault.
-4. **Build & deploy** both images to ACR; Service 1 mounts the vault volume at `/vault`, min replicas 1.
-5. **Configure read.ai** webhook URL = `https://<ingest-fqdn>/webhooks/readai` + secret (Pro/Enterprise plan); use **"Send test request"**.
-6. **Connect Claude Code** to Service 1; OAuth sign-in; verify tools.
+## Deployment runbook (updated)
+1. **Vault → git:** Run `scripts/init-vault.sh <local-vault-path>` to push existing vault to new private repo `jhs129/contextnest-vault`; add team members as collaborators.
+2. **GitHub OAuth App:** Register one for Service 1 (callback = `https://<vercel-app>.vercel.app/api/auth/callback/github`), `repo` scope.
+3. **Vercel project:** Link repo, set env vars (see `.env.example`), deploy.
+4. **Vercel Blob:** Provision a Blob store in the Vercel project dashboard; run a one-time sync from `contextnest-vault` repo → Blob on first deploy.
+5. **Connect Claude Code** to Service 1; OAuth sign-in; verify tools.
 
----
+## Open items (to resolve when resuming)
+- **Vault read path (highest priority):** 
+  - **Option A:** Reads from Vercel Blob (fast), writes to both Blob + GitHub API. Blob is the live working copy; GitHub is the history/backup.
+  - **Option C:** All reads and writes go through GitHub API only. No Blob. Simpler, but ~100–200ms latency per read call. Vault contents always match the git repo exactly.
+  - *Recommendation leaning toward A* — Blob reads are faster and decouple availability from GitHub API rate limits.
+- **Read.ai bot identity:** Dedicated machine GitHub account vs. service token + synthetic author `readai@jhsconsulting.net` (Service 2 spec, not blocking Service 1).
+- **Service 2 hosting:** Next.js on Vercel vs. Vercel serverless function only (Service 2 spec, not blocking Service 1).
 
-## Verification
-- **Unit:** `transform.ts` against read.ai's test payload → assert frontmatter + sections; validate via MCP `document_format` + `verify_integrity`.
-- **Service 1 integration:** connect an MCP client with two different GitHub OAuth users → each runs `create_document` → confirm two commits in `contextnest-vault` with **distinct, correct authors**, and that reads (`search`/`resolve`) return the new nodes.
-- **Service 2 integration:** `curl` a correctly-HMAC-signed sample payload → confirm Service 1 receives a `create_document` and a **"Read.ai bot"-authored** commit lands; resend same `request_id` → no-op.
-- **End-to-end:** real/test read.ai meeting → node appears in repo → John's Claude Code (hosted MCP) surfaces it; a manual edit from Claude Code shows **his** name in `git log`/GitHub.
-
----
-
-## Open items to confirm at build time (recommendations in parens)
-- **Per-user push model** (→ push with the user's **GitHub OAuth token** for native attribution + access control, requiring repo-collaborator membership; fallback: central service push with per-user `--author` if some users lack write access).
-- **Read.ai bot identity** (→ a dedicated **machine GitHub account** with collaborator access, so its commits are clearly non-human; alternative: a service token + synthetic author `readai@jhsconsulting.net`).
-- **Service 2 hosting** (→ **Azure Container App** for parity with Service 1; Azure Functions is a lighter alternative since it only needs to speak MCP outbound).
-- **Vault repo host** (→ new **private GitHub repo** `jhs129/contextnest-vault`, separate from this automation repo).
-- **OneDrive** (→ demote to optional passive backup; the hosted MCP is the access path going forward).
+## Verification (Service 1)
+- **Unit:** Each of the 14 tool handlers tested against mock Blob + mock GitHub API responses.
+- **Integration:** Two different GitHub OAuth users each run `create_document` → confirm two commits in `contextnest-vault` with distinct, correct authors; reads return the new nodes.
+- **End-to-end:** Connect Claude Code to the Vercel-hosted MCP → OAuth sign-in → create, update, search a document → verify it appears in `contextnest-vault` git history with correct attribution.
