@@ -159,6 +159,12 @@ export type { SyntaxConfig } from "./config.js";
 export { NestStorage, UNSTAGED_DRIFT_SENTINEL } from "./storage.js";
 export type { LayoutMode, ReadDocumentOptions } from "./storage.js";
 
+// Storage provider interface, fs implementation, and factory
+export type { StorageProvider } from "./storage/storage-provider.js";
+export { FsStorageProvider } from "./storage/providers/fs-storage-provider.js";
+export { createStorageProvider } from "./storage/storage-factory.js";
+export type { StorageProviderConfig } from "./storage/storage-factory.js";
+
 // URI
 export { parseUri, canonicalizeUri, serializeUri, extractPath } from "./uri.js";
 
