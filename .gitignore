@@ -13,6 +13,8 @@ out/
 # Build outputs
 dist/
 build/
+# Vendored packages commit their compiled dist
+!services/contextnest-mcp-host/vendor/**/dist/
 
 # Vercel
 .vercel/
