@@ -1,4 +1,4 @@
 {
-  "installCommand": "cd ../.. && pnpm install",
+  "installCommand": "cd ../.. && pnpm install && echo '=== node_modules check ===' && (ls services/contextnest-mcp-host/node_modules/next 2>&1 | head -3 && readlink services/contextnest-mcp-host/node_modules/next 2>/dev/null || echo 'next NOT in service node_modules')",
   "buildCommand": "next build"
 }
