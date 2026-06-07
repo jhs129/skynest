@@ -31,7 +31,7 @@ export class BlobStorageProvider implements StorageProvider {
   }
 
   async write(path: string, data: Buffer): Promise<void> {
-    await put(this.key(path), data, { access: 'public', addRandomSuffix: false });
+    await put(this.key(path), data, { access: 'private', addRandomSuffix: false });
   }
 
   async delete(path: string): Promise<void> {
