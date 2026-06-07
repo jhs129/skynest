@@ -17,6 +17,6 @@ export interface VaultEngine {
 export function createEngine(userToken: string, vaultId?: string): VaultEngine {
   const provider = createStorageProvider(vaultId);
   const storage = new NestStorage(provider);
-  const sync = createGitVaultSyncProvider();
+  const sync = createGitVaultSyncProvider(vaultId);
   return { storage, sync, userToken };
 }
