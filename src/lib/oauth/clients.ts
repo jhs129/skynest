@@ -1,29 +1,31 @@
-// In-memory client registry for the OAuth 2.1 authorization server.
-// Clients are registered via POST /oauth/register (RFC 7591 dynamic registration).
-// This is intentionally in-memory; for multi-instance deployments swap for a
-// persistent store backed by Vercel KV or similar.
-//
-// Stored on globalThis so Next.js hot-reload in dev doesn't wipe registered
-// clients mid-flow (the GitHub OAuth round-trip takes long enough to trigger
-// a module re-evaluation between registration and authorization).
+// Persistent OAuth client registry backed by Vercel Blob.
+// Each client is stored at oauth-clients/{clientId}.json so records survive
+// across serverless function instances (the previous in-memory Map did not).
+
+import { put, get, BlobNotFoundError } from '@vercel/blob';
 
 export interface OAuthClientRecord {
   name: string;
   redirectUris: string[];
 }
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __oauthClients: Map<string, OAuthClientRecord> | undefined;
+function blobKey(clientId: string): string {
+  return `oauth-clients/${clientId}.json`;
 }
 
-const clients: Map<string, OAuthClientRecord> =
-  globalThis.__oauthClients ?? (globalThis.__oauthClients = new Map());
-
-export function registerClient(clientId: string, record: OAuthClientRecord): void {
-  clients.set(clientId, record);
+export async function registerClient(clientId: string, record: OAuthClientRecord): Promise<void> {
+  const data = Buffer.from(JSON.stringify(record), 'utf8');
+  await put(blobKey(clientId), data, { access: 'private', addRandomSuffix: false, allowOverwrite: true });
 }
 
-export function getClient(clientId: string): OAuthClientRecord | undefined {
-  return clients.get(clientId);
+export async function getClient(clientId: string): Promise<OAuthClientRecord | undefined> {
+  try {
+    const result = await get(blobKey(clientId), { access: 'private' });
+    if (!result?.stream) return undefined;
+    const text = await new Response(result.stream).text();
+    return JSON.parse(text) as OAuthClientRecord;
+  } catch (err: unknown) {
+    if (err instanceof BlobNotFoundError) return undefined;
+    throw err;
+  }
 }

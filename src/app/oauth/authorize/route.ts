@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const { params } = validation;
 
-  const client = getClient(params.clientId);
+  const client = await getClient(params.clientId);
   if (!client || !client.redirectUris.includes(params.redirectUri)) {
     return NextResponse.json({ error: 'invalid_client' }, { status: 400 });
   }

@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   }
 
   const clientId = `mcpc_${crypto.randomBytes(16).toString('hex')}`;
-  registerClient(clientId, { name: client_name, redirectUris: redirect_uris });
+  await registerClient(clientId, { name: client_name, redirectUris: redirect_uris });
 
   return NextResponse.json(
     {
