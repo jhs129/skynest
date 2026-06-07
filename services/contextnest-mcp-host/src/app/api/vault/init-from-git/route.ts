@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
+import { posix } from 'path';
 import { auth } from '@/lib/auth';
 import { createStorageProvider } from '@/lib/vault/storage/index';
 
@@ -10,6 +12,19 @@ interface GitTreeEntry {
 
 interface GitBlobResponse {
   content: string;
+}
+
+function safePath(p: string): string | null {
+  const normalized = posix.normalize(p);
+  if (
+    normalized.startsWith('/') ||
+    normalized.startsWith('..') ||
+    normalized.includes('\0') ||
+    normalized.includes('\\')
+  ) {
+    return null;
+  }
+  return normalized;
 }
 
 async function fetchGitTree(repo: string, branch: string, token: string): Promise<GitTreeEntry[]> {
@@ -34,66 +49,79 @@ async function fetchBlob(repo: string, sha: string, token: string): Promise<Buff
 }
 
 /**
- * Resolve the GitHub token to use for pulling the vault repo.
+ * Verify caller is authorized to trigger a vault sync.
  *
- * Priority:
- *  1. VAULT_GITHUB_ADMIN_TOKEN env var (headless/admin bootstrap)
- *  2. Authorization: Bearer <token> header treated as a raw GitHub token
- *  3. Active NextAuth session with a GitHub access token (browser flow)
+ * Accepts either:
+ *  1. Active NextAuth session (browser OAuth flow)
+ *  2. Authorization: Bearer <VAULT_ADMIN_TOKEN> (headless/curl — compared with
+ *     timingSafeEqual to prevent timing attacks)
+ *
+ * Returns the GitHub token to use for repo access, or null if unauthorized.
  */
-async function resolveGitHubToken(req: NextRequest): Promise<string | null> {
-  // 1. Env-var admin token (e.g. set once in Vercel dashboard for headless sync)
-  if (process.env.VAULT_GITHUB_ADMIN_TOKEN) {
-    return process.env.VAULT_GITHUB_ADMIN_TOKEN;
-  }
-
-  // 2. Raw GitHub token passed directly in the Authorization header
-  const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-  if (bearer && bearer.startsWith('gh')) {
-    return bearer;
-  }
-
-  // 3. NextAuth session (browser sign-in flow)
+async function authorize(req: NextRequest): Promise<{ githubToken: string } | null> {
+  // --- Path 1: NextAuth session (browser flow) ---
   const session = await auth();
-  const sessionToken = (session as { githubAccessToken?: string } | null)?.githubAccessToken;
-  return sessionToken ?? null;
+  const sessionGitHubToken = (session as { githubAccessToken?: string } | null)?.githubAccessToken;
+  if (sessionGitHubToken) {
+    return { githubToken: sessionGitHubToken };
+  }
+
+  // --- Path 2: VAULT_ADMIN_TOKEN header (headless/curl flow) ---
+  const adminToken = process.env.VAULT_ADMIN_TOKEN;
+  const githubAdminToken = process.env.VAULT_GITHUB_ADMIN_TOKEN;
+  if (adminToken && githubAdminToken) {
+    const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
+    const provided = Buffer.from(bearer);
+    const expected = Buffer.from(adminToken);
+    if (
+      provided.length === expected.length &&
+      timingSafeEqual(provided, expected)
+    ) {
+      return { githubToken: githubAdminToken };
+    }
+  }
+
+  return null;
 }
 
 export async function POST(req: NextRequest) {
+  const auth_result = await authorize(req);
+  if (!auth_result) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const repo = process.env.VAULT_REPO;
   const branch = process.env.VAULT_BRANCH ?? 'main';
   if (!repo) {
     return NextResponse.json({ error: 'VAULT_REPO env var not set' }, { status: 500 });
   }
 
-  const githubToken = await resolveGitHubToken(req);
-  if (!githubToken) {
-    return NextResponse.json(
-      { error: 'No GitHub token available. Set VAULT_GITHUB_ADMIN_TOKEN, pass a GitHub token as Authorization: Bearer, or sign in via browser.' },
-      { status: 401 },
-    );
-  }
-
   const storage = createStorageProvider();
 
   let blobs: GitTreeEntry[];
   try {
-    blobs = await fetchGitTree(repo, branch, githubToken);
+    blobs = await fetchGitTree(repo, branch, auth_result.githubToken);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 502 });
   }
 
-  const results = { imported: 0, failed: 0, errors: [] as string[] };
+  const results = { imported: 0, failed: 0, skipped: 0, errors: [] as string[] };
 
   for (const blob of blobs) {
+    const safe = safePath(blob.path);
+    if (!safe) {
+      console.warn(`[sync-from-git] Skipping unsafe path: ${blob.path}`);
+      results.skipped++;
+      continue;
+    }
     try {
-      const content = await fetchBlob(repo, blob.sha, githubToken);
-      await storage.write(blob.path, content);
+      const content = await fetchBlob(repo, blob.sha, auth_result.githubToken);
+      await storage.write(safe, content);
       results.imported++;
     } catch (err) {
-      console.error(`[sync-from-git] Failed: ${blob.path}`, err);
+      console.error(`[sync-from-git] Failed: ${safe}`, err);
       results.failed++;
-      results.errors.push(`${blob.path}: ${String(err)}`);
+      results.errors.push(`${safe}: ${String(err)}`);
     }
   }
 
