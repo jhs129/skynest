@@ -19,8 +19,7 @@ export function getHandler(vaultId: string) {
         async (req: Request, bearerToken?: string) => {
           if (!bearerToken) return undefined;
           const url = new URL(req.url);
-          const resourceUrl = `${url.origin}/api/mcp`;
-          const authInfo = await verifyMcpToken(bearerToken, resourceUrl);
+          const authInfo = await verifyMcpToken(bearerToken, url.origin);
           if (!authInfo) return undefined;
           return { ...authInfo, extra: { ...(authInfo.extra as object), vaultId } };
         },
