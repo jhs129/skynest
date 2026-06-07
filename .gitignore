@@ -31,4 +31,5 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+.playwright-mcp/*.yml
 .vercel
