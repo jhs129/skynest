@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.26.0",
-    "@promptowl/contextnest-engine": "workspace:*",
+    "@promptowl/contextnest-engine": "file:./vendor/packages/engine",
     "@vercel/blob": "^0.26.0",
     "jose": "^6.0.0",
     "mcp-handler": "1.1.0",

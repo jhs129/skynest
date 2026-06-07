@@ -6,13 +6,15 @@ settings:
 
 importers:
 
+  .: {}
+
   services/contextnest-mcp-host:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: 1.26.0
         version: 1.26.0(zod@3.25.76)
       '@promptowl/contextnest-engine':
-        specifier: workspace:*
+        specifier: file:./vendor/packages/engine
         version: link:vendor/packages/engine
       '@vercel/blob':
         specifier: ^0.26.0
