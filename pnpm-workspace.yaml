@@ -1,0 +1,3 @@
+packages:
+  - 'services/*'
+  - 'services/contextnest-mcp-host/vendor/packages/*'

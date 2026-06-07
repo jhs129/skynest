@@ -1,0 +1,13 @@
+import { NextResponse } from 'next/server';
+import { resolveServerUrls } from '@/lib/oauth/urls';
+
+export async function GET() {
+  const { baseUrl } = await resolveServerUrls();
+  const base = baseUrl.origin;
+  return NextResponse.json({
+    resource: `${base}/api/mcp`,
+    authorization_servers: [base],
+    bearer_methods_supported: ['header'],
+    scopes_supported: ['mcp:read', 'mcp:write'],
+  });
+}
