@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { baseUrl } = await resolveServerUrls();
-  const audience = baseUrl.origin;
+  const audience = `${baseUrl.origin}/api/mcp`;
 
   const { token: accessToken } = await signAccessToken({
     userId: claims.sub,
