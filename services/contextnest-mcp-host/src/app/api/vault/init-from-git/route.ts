@@ -96,7 +96,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'VAULT_REPO env var not set' }, { status: 500 });
   }
 
-  const storage = createStorageProvider();
+  let body: { vaultId?: string } = {};
+  try { body = await req.json(); } catch { /* empty body is fine */ }
+  const vaultId = body.vaultId;
+
+  const storage = createStorageProvider(vaultId);
 
   let blobs: GitTreeEntry[];
   try {
@@ -125,5 +129,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, repo, branch, ...results });
+  const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
+  return NextResponse.json({ ok: true, repo, branch, vaultId: resolvedVaultId, ...results });
 }

@@ -12,9 +12,10 @@ export interface VaultEngine {
 /**
  * Create a fully configured vault engine for a single request.
  * Each tool call gets its own instance — stateless, correct attribution per call.
+ * Pass vaultId to select a specific vault in a multi-repo setup.
  */
-export function createEngine(userToken: string): VaultEngine {
-  const provider = createStorageProvider();
+export function createEngine(userToken: string, vaultId?: string): VaultEngine {
+  const provider = createStorageProvider(vaultId);
   const storage = new NestStorage(provider);
   const sync = createGitVaultSyncProvider();
   return { storage, sync, userToken };

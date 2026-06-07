@@ -1,37 +1,33 @@
-import { put, del, list, head } from '@vercel/blob';
+import { put, del, list, head, get, BlobNotFoundError } from '@vercel/blob';
 import type { StorageProvider } from '@promptowl/contextnest-engine';
 
 export interface BlobStorageConfig {
-  /** Vault-level key prefix, e.g. "vault". Read from CONTEXTNEST_BLOB_PREFIX env var. */
+  /** Top-level namespace prefix, e.g. "vault". Read from CONTEXTNEST_BLOB_PREFIX env var. */
   prefix: string;
+  /** Vault identifier for multi-repo support, e.g. "default". Read from CONTEXTNEST_DEFAULT_VAULT_ID env var. */
+  vaultId: string;
 }
 
 export class BlobStorageProvider implements StorageProvider {
   constructor(private readonly config: BlobStorageConfig) {}
 
   private key(path: string): string {
-    return `${this.config.prefix}/${path}`;
+    return `${this.config.prefix}/${this.config.vaultId}/${path}`;
   }
 
   private stripPrefix(pathname: string): string {
-    const pfx = `${this.config.prefix}/`;
+    const pfx = `${this.config.prefix}/${this.config.vaultId}/`;
     return pathname.startsWith(pfx) ? pathname.slice(pfx.length) : pathname;
   }
 
   async read(path: string): Promise<Buffer | null> {
-    try {
-      const meta = await head(this.key(path));
-      const res = await fetch(meta.downloadUrl);
-      if (!res.ok) return null;
-      return Buffer.from(await res.arrayBuffer());
-    } catch (err: unknown) {
-      if ((err as { status?: number }).status === 404) return null;
-      throw err;
-    }
+    const result = await get(this.key(path), { access: 'private' });
+    if (!result || !result.stream) return null;
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
 
   async write(path: string, data: Buffer): Promise<void> {
-    await put(this.key(path), data, { access: 'private', addRandomSuffix: false });
+    await put(this.key(path), data, { access: 'private', addRandomSuffix: false, allowOverwrite: true });
   }
 
   async delete(path: string): Promise<void> {
@@ -75,7 +71,7 @@ export class BlobStorageProvider implements StorageProvider {
       await head(this.key(path));
       return true;
     } catch (err: unknown) {
-      if ((err as { status?: number }).status === 404) return false;
+      if (err instanceof BlobNotFoundError) return false;
       throw err;
     }
   }
