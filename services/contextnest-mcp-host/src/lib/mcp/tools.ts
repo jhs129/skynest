@@ -61,7 +61,11 @@ const permissiveRbac: RbacHook = {
 
 export function registerTools(server: McpServer): void {
   const vaultIdParam = {
-    vault_id: z.string().optional().describe('Vault ID for multi-repo support (defaults to CONTEXTNEST_DEFAULT_VAULT_ID or "default")'),
+    vault_id: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, 'vault_id must be alphanumeric with hyphens/underscores, 1–64 chars')
+      .optional()
+      .describe('Vault ID for multi-repo support (defaults to CONTEXTNEST_DEFAULT_VAULT_ID or "default")'),
   };
 
   // ── vault_info ─────────────────────────────────────────────────────────────

@@ -100,6 +100,10 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { /* empty body is fine */ }
   const vaultId = body.vaultId;
 
+  if (vaultId !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(vaultId)) {
+    return NextResponse.json({ error: 'Invalid vaultId' }, { status: 400 });
+  }
+
   const storage = createStorageProvider(vaultId);
 
   let blobs: GitTreeEntry[];
