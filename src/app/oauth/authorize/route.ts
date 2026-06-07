@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { signAuthCode } from '@/lib/oauth/jwt';
-import { getClient } from '@/lib/oauth/clients';
+import { getClient, registerClient } from '@/lib/oauth/clients';
 import { parseAuthorizeParams } from '@/lib/oauth/authorize';
 import { resolveServerUrls } from '@/lib/oauth/urls';
+
+const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/;
 
 export async function GET(req: NextRequest) {
   const validation = parseAuthorizeParams(req.nextUrl.searchParams);
@@ -16,7 +18,16 @@ export async function GET(req: NextRequest) {
 
   const { params } = validation;
 
-  const client = await getClient(params.clientId);
+  let client = await getClient(params.clientId);
+
+  // Auto-register clients that were registered before Blob persistence was added.
+  // Claude Code caches its client_id locally; if it presents a valid mcpc_ id with a
+  // loopback redirect URI we can safely re-persist it rather than forcing re-registration.
+  if (!client && /^mcpc_[0-9a-f]+$/.test(params.clientId) && LOOPBACK.test(params.redirectUri)) {
+    await registerClient(params.clientId, { name: 'MCP Client', redirectUris: [params.redirectUri] });
+    client = { name: 'MCP Client', redirectUris: [params.redirectUri] };
+  }
+
   if (!client || !client.redirectUris.includes(params.redirectUri)) {
     return NextResponse.json({ error: 'invalid_client' }, { status: 400 });
   }
