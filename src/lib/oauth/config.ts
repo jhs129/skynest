@@ -13,5 +13,5 @@ export const OAUTH_ALGORITHM = 'RS256' as const;
 
 /** Resource identifier — audience claim in access tokens. */
 export function getResourceUrl(host: string): string {
-  return `https://${host}/api/mcp`;
+  return `https://${host}`;
 }

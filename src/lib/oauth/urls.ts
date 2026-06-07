@@ -18,6 +18,6 @@ export async function resolveServerUrls(): Promise<{
   return {
     baseUrl,
     issuer: baseUrl,
-    resourceUrl: new URL('/api/mcp', baseUrl),
+    resourceUrl: baseUrl,
   };
 }

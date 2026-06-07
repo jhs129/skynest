@@ -1,14 +1,3 @@
-/**
- * Context Nest MCP tool registrations.
- *
- * Wraps the upstream @promptowl/contextnest-engine operations as MCP tools,
- * routing all storage through the Vercel Blob–backed NestStorage and
- * firing off Git sync commits for write operations.
- *
- * Each tool call gets its own VaultEngine instance via createEngine() so that
- * attribution (userToken) is correct per request.
- */
-
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
@@ -67,7 +56,7 @@ export function registerTools(server: McpServer): void {
     {},
     async (_args, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const contextMd = await storage.readContextMd();
       const config = await storage.readConfig();
       return jsonResult({
@@ -102,7 +91,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ selector, hops, full }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const engine = new GraphQueryEngine(storage);
       const result = await engine.query(selector, {
         hops: hops ?? 2,
@@ -145,7 +134,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ uri }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       let docId: string;
       if (uri.startsWith('contextnest://')) {
         const parsed = parseUri(uri);
@@ -169,7 +158,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ type, status, tag }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       let docs = await storage.discoverDocuments();
       if (type) docs = docs.filter((d) => (d.frontmatter.type ?? 'document') === type);
       if (status) docs = docs.filter((d) => (d.frontmatter.status ?? 'draft') === status);
@@ -278,7 +267,7 @@ export function registerTools(server: McpServer): void {
   // ── read_index ─────────────────────────────────────────────────────────────
   server.tool('read_index', 'Return the context.yaml index', {}, async (_args, ctx) => {
     const extra = getExtra(ctx.authInfo);
-    const { storage } = createEngine(extra.userToken);
+    const { storage } = createEngine(extra.userToken, extra.vaultId);
     const contextYaml = await storage.readContextYaml();
     return contextYaml
       ? jsonResult(contextYaml)
@@ -295,7 +284,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ id, hops }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const packs = await storage.readPacks();
       const packLoader = new PackLoader(packs);
       const pack = packLoader.get(id);
@@ -345,7 +334,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ query, hops, full }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const selector = `contextnest://search/${query.replace(/\s+/g, '+')}`;
       const engine = new GraphQueryEngine(storage);
       const result = await engine.query(selector, {
@@ -376,7 +365,7 @@ export function registerTools(server: McpServer): void {
     {},
     async (_args, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const report = await storage.verifyVaultIntegrity();
       return jsonResult(report);
     },
@@ -389,7 +378,7 @@ export function registerTools(server: McpServer): void {
     { limit: z.number().optional().describe('Max checkpoints to return (default 10)') },
     async ({ limit }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const cm = new CheckpointManager(storage);
       const history = await cm.loadCheckpointHistory();
       if (!history) {
@@ -411,7 +400,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, version }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const vm = new VersionManager(storage);
       const content = await vm.reconstructVersion(id, version);
@@ -458,7 +447,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, title, type, tags, body, trigger, tools_required, output_format }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage, sync, userToken } = createEngine(extra.userToken);
+      const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
 
       // Check if document already exists
@@ -558,7 +547,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, title, tags, status, body }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage, sync, userToken } = createEngine(extra.userToken);
+      const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const doc = await storage.readDocument(id);
 
@@ -623,7 +612,7 @@ export function registerTools(server: McpServer): void {
     { path: z.string().describe("Document path (e.g., 'nodes/api-design')") },
     async ({ path }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage, sync, userToken } = createEngine(extra.userToken);
+      const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const doc = await storage.readDocument(id);
       await storage.deleteDocument(id);
@@ -661,7 +650,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, author, note }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage, sync, userToken } = createEngine(extra.userToken);
+      const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
 
       const result = await publishDocument(storage, id, {
@@ -706,7 +695,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, actor, note }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const node = await storage.readDocument(id);
       const history = await storage.readHistory(id);
@@ -766,7 +755,7 @@ export function registerTools(server: McpServer): void {
     { path: z.string().describe("Document path (e.g., 'nodes/api-design')") },
     async ({ path }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const metas = await listSuggestions(storage, id);
       return jsonResult({ document_id: id, count: metas.length, suggestions: metas });
@@ -793,7 +782,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, suggestion_id, actor, comment }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage, sync, userToken } = createEngine(extra.userToken);
+      const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const node = await storage.readDocument(id);
       const zone = node.frontmatter.zone ?? 'default';
@@ -847,7 +836,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ path, suggestion_id, reason, actor }, ctx) => {
       const extra = getExtra(ctx.authInfo);
-      const { storage } = createEngine(extra.userToken);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
       const node = await storage.readDocument(id);
       const zone = node.frontmatter.zone ?? 'default';

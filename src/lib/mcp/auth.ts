@@ -5,6 +5,7 @@ import { getPublicKey } from '@/lib/oauth/keys';
 export interface McpExtra {
   userToken: string; // GitHub OAuth access token
   userLogin: string; // GitHub username
+  vaultId: string;   // selected vault, derived from MCP server URL path
 }
 
 export async function verifyMcpToken(

@@ -16,7 +16,8 @@ describe('verifyMcpToken', () => {
       sub: 'user-123',
       client_id: 'mcpc_abc',
       scope: 'mcp:read mcp:write',
-      extra: { userToken: 'ghp_abc', userLogin: 'testuser' },
+      userToken: 'ghp_abc',
+      userLogin: 'testuser',
     })
       .setProtectedHeader({ alg: 'RS256' })
       .setAudience('https://example.com/api/mcp')
