@@ -17,9 +17,10 @@ export async function verifyMcpToken(
     algorithms: ['RS256'],
   });
 
+  const extraClaims = (payload['extra'] as Record<string, string>) ?? {};
   const extra: Record<string, unknown> = {
-    userToken: (payload['userToken'] as string) ?? '',
-    userLogin: (payload['userLogin'] as string) ?? '',
+    userToken: extraClaims.userToken ?? '',
+    userLogin: extraClaims.userLogin ?? '',
   };
   return {
     token,

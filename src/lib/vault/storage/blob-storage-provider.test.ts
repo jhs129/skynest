@@ -44,8 +44,8 @@ describe('BlobStorageProvider', () => {
     await provider.write('nodes/doc.md', Buffer.from('hello'));
     expect(mockPut).toHaveBeenCalledWith(
       'vault/nodes/doc.md',
-      expect.any(Buffer),
-      { access: 'public', addRandomSuffix: false }
+      expect.any(Uint8Array),
+      { access: 'private', addRandomSuffix: false }
     );
   });
 
