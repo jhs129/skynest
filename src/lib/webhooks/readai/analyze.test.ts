@@ -19,12 +19,13 @@ const PAYLOAD: ReadAiPayload = {
   session_id: 'sess_1',
   title: 'Quarterly Review',
   summary: 'We discussed roadmap.',
-  meeting_date: '2026-06-07T14:00:00Z',
+  start_time: '2026-06-07T14:00:00Z',
   platform: 'zoom',
   report_url: 'https://app.read.ai/sessions/sess_1',
   participants: [{ name: 'Jane Smith', email: 'jane@acme.com' }],
-  topics: ['Roadmap'],
-  action_items: ['Send proposal'],
+  topics: [{ text: 'Roadmap' }],
+  action_items: [{ text: 'Send proposal' }],
+  key_questions: [],
   chapter_summaries: [],
 };
 
@@ -66,7 +67,7 @@ describe('analyzeMeeting', () => {
     expect(result.haiku_error).toBe(true);
   });
 
-  it('forces client to unknown when confidence is low', async () => {
+  it('forces client to unknown (lowercase) when confidence is low', async () => {
     const lowConf = JSON.stringify({
       client: 'Maybe Corp',
       client_slug: 'maybe-corp',
@@ -77,6 +78,7 @@ describe('analyzeMeeting', () => {
     });
     mockGenerateText.mockResolvedValue({ text: lowConf } as ReturnType<typeof generateText> extends Promise<infer T> ? T : never);
     const result = await analyzeMeeting(PAYLOAD, '');
+    expect(result.client).toBe('unknown');
     expect(result.client_slug).toBe('unknown');
     expect(result.haiku_error).toBeUndefined();
   });
@@ -88,11 +90,13 @@ describe('analyzeMeeting', () => {
     expect(result.haiku_error).toBe(true);
   });
 
-  it('includes registry text in the prompt', async () => {
+  it('includes registry text and payload fields in the prompt', async () => {
     mockGenerateText.mockResolvedValue({ text: VALID_RESPONSE } as ReturnType<typeof generateText> extends Promise<infer T> ? T : never);
     await analyzeMeeting(PAYLOAD, '### Special Client\n- domains: special.com');
     const call = mockGenerateText.mock.calls[0][0];
     expect(call.prompt).toContain('Special Client');
     expect(call.prompt).toContain('Quarterly Review');
+    expect(call.prompt).toContain('Roadmap');
+    expect(call.prompt).toContain('Send proposal');
   });
 });

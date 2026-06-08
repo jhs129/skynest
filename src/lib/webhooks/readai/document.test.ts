@@ -7,15 +7,16 @@ const PAYLOAD: ReadAiPayload = {
   session_id: 'sess_xyz',
   title: 'Quarterly Review',
   summary: 'Original summary.',
-  meeting_date: '2026-06-07T14:00:00Z',
+  start_time: '2026-06-07T14:00:00Z',
   platform: 'zoom',
   report_url: 'https://app.read.ai/sessions/sess_xyz',
   participants: [
     { name: 'Jane Smith', email: 'jane@acme.com' },
     { name: 'John', email: undefined },
   ],
-  topics: ['Roadmap', 'Budget'],
-  action_items: ['Send proposal'],
+  topics: [{ text: 'Roadmap' }, { text: 'Budget' }],
+  action_items: [{ text: 'Send proposal' }],
+  key_questions: [],
   chapter_summaries: [],
 };
 

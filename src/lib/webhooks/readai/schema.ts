@@ -1,28 +1,37 @@
 import { z } from 'zod';
 
-const ParticipantSchema = z.object({
+const PersonSchema = z.object({
   name: z.string().optional(),
-  email: z.string().optional(),
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  email: z.string().nullable().optional(),
 });
+
+const TextItemSchema = z.object({ text: z.string() });
 
 const ChapterSummarySchema = z.object({
   title: z.string(),
-  summary: z.string(),
+  description: z.string(),
+  topics: z.array(TextItemSchema).optional().default([]),
 });
 
 export const ReadAiPayloadSchema = z.object({
   request_id: z.string(),
   session_id: z.string(),
   title: z.string(),
-  summary: z.string(),
-  meeting_date: z.string(),
-  duration_minutes: z.number().optional(),
-  platform: z.string().optional(),
+  trigger: z.string().optional(),
+  summary: z.string().optional().default(''),
+  start_time: z.string().optional(),
+  end_time: z.string().optional(),
+  participants: z.array(PersonSchema).optional().default([]),
+  owner: PersonSchema.optional(),
+  action_items: z.array(TextItemSchema).optional().default([]),
+  key_questions: z.array(TextItemSchema).optional().default([]),
+  topics: z.array(TextItemSchema).optional().default([]),
   report_url: z.string().optional(),
-  participants: z.array(ParticipantSchema),
-  topics: z.array(z.string()).optional().default([]),
-  action_items: z.array(z.string()).optional().default([]),
   chapter_summaries: z.array(ChapterSummarySchema).optional().default([]),
+  platform: z.string().optional(),
+  platform_meeting_id: z.string().optional(),
 });
 
 export type ReadAiPayload = z.infer<typeof ReadAiPayloadSchema>;

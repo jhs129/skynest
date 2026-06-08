@@ -3,7 +3,7 @@ import { generateText } from 'ai';
 import { HaikuAnalysisSchema, type HaikuAnalysis, type ReadAiPayload } from './schema';
 
 const DEFAULT_ANALYSIS: HaikuAnalysis = {
-  client: 'Unknown',
+  client: 'unknown',
   client_slug: 'unknown',
   confidence: 'low',
   tags: [],
@@ -15,10 +15,10 @@ function buildPrompt(payload: ReadAiPayload, registryText: string): string {
   const participants = payload.participants
     .map((p) => p.email || p.name || 'unknown')
     .join(', ');
-  const topics = payload.topics.map((t) => `- ${t}`).join('\n') || '(none)';
-  const actionItems = payload.action_items.map((a) => `- ${a}`).join('\n') || '(none)';
+  const topics = payload.topics.map((t) => `- ${t.text}`).join('\n') || '(none)';
+  const actionItems = payload.action_items.map((a) => `- ${a.text}`).join('\n') || '(none)';
   const chapters = payload.chapter_summaries
-    .map((c) => `### ${c.title || '(untitled)'}\n${c.summary || ''}`)
+    .map((c) => `### ${c.title || '(untitled)'}\n${c.description || ''}`)
     .join('\n\n');
 
   return `You are analyzing a meeting report to identify the client and summarize key information.
@@ -28,7 +28,7 @@ ${registryText || '(No client registry available)'}
 
 ## Meeting Report
 Title: ${payload.title || '(untitled)'}
-Date: ${payload.meeting_date || 'unknown'}
+Date: ${payload.start_time || 'unknown'}
 Platform: ${payload.platform || 'unknown'}
 Participants: ${participants || 'none'}
 
@@ -47,7 +47,7 @@ ${chapters || '(none)'}
 Based on the client registry, identify which client this meeting is for and extract key information.
 Return ONLY a JSON object with exactly this structure (no explanation, no markdown, just the JSON):
 {
-  "client": "Client Name from registry, or 'Unknown' if not identified",
+  "client": "Client Name from registry, or 'unknown' if not identified",
   "client_slug": "kebab-case-slug, or 'unknown'",
   "confidence": "high" | "medium" | "low",
   "tags": ["tag1", "tag2"],
@@ -76,7 +76,7 @@ export async function analyzeMeeting(
 
     const result = parsed.data;
     if (result.confidence === 'low') {
-      return { ...result, client: 'Unknown', client_slug: 'unknown' };
+      return { ...result, client: 'unknown', client_slug: 'unknown' };
     }
 
     return result;

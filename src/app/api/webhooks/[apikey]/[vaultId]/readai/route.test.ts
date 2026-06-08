@@ -43,13 +43,15 @@ const VALID_PAYLOAD = JSON.stringify({
   request_id: 'req_abc123',
   session_id: 'sess_xyz',
   title: 'Quarterly Review',
+  trigger: 'meeting_end',
   summary: 'Meeting summary.',
-  meeting_date: '2026-06-07T14:00:00Z',
+  start_time: '2026-06-07T14:00:00Z',
   platform: 'zoom',
   report_url: 'https://app.read.ai/sessions/sess_xyz',
   participants: [],
   topics: [],
   action_items: [],
+  key_questions: [],
   chapter_summaries: [],
 });
 
@@ -77,6 +79,13 @@ function makeRequest(body: string, overrides: { apikey?: string; vaultId?: strin
 describe('POST /api/webhooks/[apikey]/[vaultId]/readai', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Explicitly reset storage/sync implementations — clearAllMocks does not reset them
+    mockStorage.writeDocument.mockResolvedValue(undefined);
+    mockStorage.readDocument.mockResolvedValue(null);
+    mockStorage.discoverDocuments.mockResolvedValue([]);
+    mockStorage.regenerateIndex.mockResolvedValue(undefined);
+    mockSync.commitFile.mockResolvedValue(undefined);
+
     process.env.WEBHOOK_API_KEY = API_KEY;
     process.env.READ_AI_SIGNING_KEY = SIGNING_KEY_B64;
     process.env.BOT_GITHUB_TOKEN = 'bot-token';
