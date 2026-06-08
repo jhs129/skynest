@@ -86,7 +86,14 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
   // Haiku analysis (failure is non-fatal — document is always written)
   console.log(`[skynest] step: analyze meeting`);
-  const analysis = await analyzeMeeting(payload, registryText);
+  let analysis;
+  try {
+    analysis = await analyzeMeeting(payload, registryText);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[skynest] analyzeMeeting threw (non-fatal): ${msg}`);
+    analysis = { client: 'unknown', client_slug: 'unknown', confidence: 'low' as const, tags: [], summary: '', action_items: [], haiku_error: true };
+  }
   console.log(`[skynest] step: analyze ok haiku_error=${(analysis as { haiku_error?: boolean }).haiku_error ?? false}`);
 
   // Build document
@@ -115,7 +122,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     await storage.regenerateIndex();
     console.log(`[skynest] vault write ok vault=${resolvedVaultId} doc=${id} session=${payload.session_id}`);
   } catch (err) {
-    console.error('Vault write failed:', err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error(`[skynest] vault write failed vault=${resolvedVaultId} doc=${id}: ${msg}`);
     return NextResponse.json({ error: 'vault write failed' }, { status: 500 });
   }
 
