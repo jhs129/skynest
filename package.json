@@ -10,7 +10,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "oauth:gen-keypair": "tsx scripts/oauth-gen-keypair.ts"
+    "oauth:gen-keypair": "tsx scripts/oauth-gen-keypair.ts",
+    "test:webhook": "tsx scripts/test-webhook-readai.ts"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.125",
