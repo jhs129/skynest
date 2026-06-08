@@ -34,7 +34,7 @@ export function buildMeetingDocument(
   }
 
   const frontmatter: Frontmatter = {
-    title: `${analysis.client} — ${payload.title || 'Meeting'}`,
+    title: `${analysis.client} — ${payload.title}`,
     type: 'document',
     status: 'published',
     tags: analysis.tags,
@@ -46,7 +46,7 @@ export function buildMeetingDocument(
 
 function buildBody(
   payload: ReadAiPayload,
-  analysis: HaikuAnalysis,
+  analysis: HaikuAnalysis & { haiku_error?: boolean },
 ): string {
   const lines: string[] = [];
 

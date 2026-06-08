@@ -60,9 +60,10 @@ describe('buildMeetingDocument', () => {
 
   it('includes participant emails in metadata participants', () => {
     const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    const participants = frontmatter.metadata!.participants as string[];
-    expect(participants).toContain('jane@acme.com');
-    expect(participants).toContain('John');
+    const participants = frontmatter.metadata!.participants;
+    expect(Array.isArray(participants)).toBe(true);
+    expect(participants as string[]).toContain('jane@acme.com');
+    expect(participants as string[]).toContain('John');
   });
 
   it('includes haiku_error in metadata when present', () => {
@@ -103,5 +104,13 @@ describe('buildMeetingDocument', () => {
   it('uses payload summary when Haiku summary is empty', () => {
     const { body } = buildMeetingDocument(PAYLOAD, { ...ANALYSIS, summary: '' });
     expect(body).toContain('Original summary.');
+  });
+
+  it('body contains ## Summary even when both summaries are empty', () => {
+    const { body } = buildMeetingDocument(
+      { ...PAYLOAD, summary: '' },
+      { ...ANALYSIS, summary: '' },
+    );
+    expect(body).toContain('## Summary');
   });
 });
