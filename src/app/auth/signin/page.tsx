@@ -1,6 +1,13 @@
 import Image from 'next/image';
 
-export default function SignInPage() {
+interface Props {
+  searchParams: Promise<{ callbackUrl?: string }>;
+}
+
+export default async function SignInPage({ searchParams }: Props) {
+  const { callbackUrl } = await searchParams;
+  const redirectTo = callbackUrl ?? '/';
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8">
       <div className="flex flex-col items-center space-y-3">
@@ -16,7 +23,7 @@ export default function SignInPage() {
         method="POST"
         className="w-full max-w-xs"
       >
-        <input type="hidden" name="callbackUrl" value="/" />
+        <input type="hidden" name="callbackUrl" value={redirectTo} />
         <button
           type="submit"
           className="w-full flex items-center justify-center gap-3 bg-gray-900 hover:bg-gray-800 text-white font-medium px-6 py-3 rounded-lg transition-colors"
