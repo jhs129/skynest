@@ -17,7 +17,7 @@ export function buildMeetingDocument(
     .map((p) => p.email || p.name)
     .filter((v): v is string => Boolean(v));
 
-  const metadata: Record<string, unknown> = {
+  const metadataRaw: Record<string, unknown> = {
     document_type: 'meeting',
     client: analysis.client_slug,
     meeting_date: payload.start_time,
@@ -27,11 +27,12 @@ export function buildMeetingDocument(
     request_id: payload.request_id,
     source: 'readai',
     haiku_confidence: analysis.confidence,
+    ...(analysis.haiku_error ? { haiku_error: true } : {}),
   };
-
-  if (analysis.haiku_error) {
-    metadata.haiku_error = true;
-  }
+  // gray-matter/js-yaml throws on undefined values — strip them
+  const metadata: Record<string, unknown> = Object.fromEntries(
+    Object.entries(metadataRaw).filter(([, v]) => v !== undefined),
+  );
 
   const frontmatter: Frontmatter = {
     title: `${analysis.client} — ${payload.title}`,
