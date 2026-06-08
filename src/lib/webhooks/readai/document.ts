@@ -20,7 +20,7 @@ export function buildMeetingDocument(
   const metadata: Record<string, unknown> = {
     document_type: 'meeting',
     client: analysis.client_slug,
-    meeting_date: payload.meeting_date,
+    meeting_date: payload.start_time,
     participants,
     platform: payload.platform,
     report_url: payload.report_url,
@@ -60,7 +60,7 @@ function buildBody(
 
   if (payload.topics.length > 0) {
     lines.push('## Topics', '');
-    payload.topics.forEach((topic) => lines.push(`- ${topic}`));
+    payload.topics.forEach((t) => lines.push(`- ${t.text}`));
     lines.push('');
   }
 

@@ -53,13 +53,21 @@ export class BlobStorageProvider implements StorageProvider {
 
   async list(pattern: string): Promise<string[]> {
     // Convert glob prefix (e.g. "nodes/**/*.md") to a blob list prefix ("nodes/")
-    const prefix = pattern.split('*')[0];
+    const parts = pattern.split('*');
+    const prefix = parts[0];
+    // If the pattern contains wildcards and ends with a concrete suffix, filter by it.
+    // This handles "**/.versions/*/history.yaml" returning only history.yaml files,
+    // not keyframe files (v1.md) which share the same blob prefix but fail YAML parsing.
+    const suffix = parts.length > 1 && !pattern.endsWith('*') ? parts[parts.length - 1] : '';
     const results: string[] = [];
     let cursor: string | undefined;
     do {
       const result = await list({ prefix: this.key(prefix), cursor });
       for (const blob of result.blobs) {
-        results.push(this.stripPrefix(blob.pathname));
+        const path = this.stripPrefix(blob.pathname);
+        if (!suffix || path.endsWith(suffix)) {
+          results.push(path);
+        }
       }
       cursor = result.hasMore ? result.cursor : undefined;
     } while (cursor);
