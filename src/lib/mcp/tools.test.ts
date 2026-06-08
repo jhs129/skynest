@@ -173,7 +173,7 @@ describe('registerTools', () => {
 
     it('parses contextnest:// URIs via parseUri', async () => {
       const { parseUri } = await import('@promptowl/contextnest-engine');
-      vi.mocked(parseUri).mockReturnValue({ path: 'nodes/api-design', scheme: 'contextnest', fragment: undefined, version: undefined });
+      vi.mocked(parseUri).mockReturnValue({ path: 'nodes/api-design', kind: 'document' });
 
       mockStorage.readDocument.mockResolvedValue({
         id: 'nodes/api-design',
@@ -258,7 +258,7 @@ describe('registerTools', () => {
           rawContent: '',
         },
         checkpointNumber: 1,
-        versionEntry: { chain_hash: 'abc123', version: 1, content_hash: 'def456', edited_by: 'test', keyframe: true, timestamp: new Date().toISOString() },
+        versionEntry: { chain_hash: 'abc123', version: 1, content_hash: 'def456', edited_by: 'test', keyframe: true, edited_at: '2024-01-01T00:00:00.000Z' },
       } as ReturnType<typeof publishDocument> extends Promise<infer T> ? T : never);
 
       const { server, tools } = makeServerStub();
