@@ -26,3 +26,14 @@ export const ReadAiPayloadSchema = z.object({
 });
 
 export type ReadAiPayload = z.infer<typeof ReadAiPayloadSchema>;
+
+export const HaikuAnalysisSchema = z.object({
+  client: z.string(),
+  client_slug: z.string(),
+  confidence: z.enum(['high', 'medium', 'low']),
+  tags: z.array(z.string()),
+  summary: z.string(),
+  action_items: z.array(z.string()),
+});
+
+export type HaikuAnalysis = z.infer<typeof HaikuAnalysisSchema>;
