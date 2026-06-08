@@ -13,9 +13,11 @@
     "oauth:gen-keypair": "tsx scripts/oauth-gen-keypair.ts"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.125",
     "@modelcontextprotocol/sdk": "1.26.0",
     "@promptowl/contextnest-engine": "file:./vendor/packages/engine",
     "@vercel/blob": "^2.4.0",
+    "ai": "^6.0.197",
     "jose": "^6.0.0",
     "mcp-handler": "1.1.0",
     "next": "15.5.19",
