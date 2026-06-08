@@ -35,8 +35,9 @@ src/
     api/
       webhooks/
         [apikey]/
-          readai/
-            route.ts          # POST handler — verification, dedup, analysis, write
+          [vaultId]/
+            readai/
+              route.ts        # POST handler — verification, dedup, analysis, write
   lib/
     webhooks/
       readai/
@@ -54,20 +55,23 @@ src/
 ### Route
 
 ```
-POST /api/webhooks/[apikey]/readai
+POST /api/webhooks/[apikey]/[vaultId]/readai
 ```
 
-The `[apikey]` segment is a long random string stored as `WEBHOOK_API_KEY` in the environment. The full webhook URL configured in the Read.ai dashboard looks like:
+The `[apikey]` segment is a long random string stored as `WEBHOOK_API_KEY` in the environment. The `[vaultId]` segment selects which vault receives the meeting document — it must match the pattern `^[a-z0-9][a-z0-9_-]{0,63}$` (the same validation the storage layer enforces). Passing `"default"` resolves to `CONTEXTNEST_DEFAULT_VAULT_ID`. A separate webhook URL is configured in the Read.ai dashboard for each vault.
+
+The full webhook URL configured in the Read.ai dashboard looks like:
 
 ```
-https://your-deployment.vercel.app/api/webhooks/582941c27dd66c9e7feca5b5d43c9ae506ffda06/readai
+https://your-deployment.vercel.app/api/webhooks/582941c27dd66c9e7feca5b5d43c9ae506ffda06/my-vault/readai
 ```
 
-Rotating the key means generating a new value, updating the env var, redeploying, and reconfiguring the Read.ai webhook URL.
+Rotating the key means generating a new value, updating the env var, redeploying, and reconfiguring the Read.ai webhook URL(s).
 
 ### Verification sequence
 
 1. **Path key check** — timing-safe comparison of `params.apikey` against `WEBHOOK_API_KEY`. Returns 401 on mismatch. Unknown callers never proceed further.
+1a. **Vault ID validation** — validate `params.vaultId` against `^[a-z0-9][a-z0-9_-]{0,63}$`. Returns 400 on invalid format. All subsequent operations use this vault.
 2. **HMAC-SHA256 body verification** — Read.ai sends `X-Read-Signature` as a hex digest. The handler computes `HMAC-SHA256(rawBody, base64Decode(READ_AI_SIGNING_KEY))` and compares using `crypto.timingSafeEqual`. Returns 401 on mismatch.
 3. **Deduplication** — search vault for any document with `request_id` matching the payload's `request_id`. If found, return 200 immediately (idempotent).
 
@@ -252,4 +256,4 @@ New variables (additions to the Service 1 set):
 
 - **Bot account:** decide whether `BOT_GITHUB_TOKEN` belongs to a dedicated `skynest-bot` GitHub account or the repo owner's account. Dedicated account gives cleaner audit trail.
 - **Transcript inclusion:** the Read.ai payload includes a full `transcript` field. Excluded from the vault document by default (can be large). Consider a `READAI_INCLUDE_TRANSCRIPT=true` env flag if needed later.
-- **Multi-vault support:** `createEngine` accepts an optional `vaultId`. Webhook handler uses the default vault. Multi-tenant routing (different vaults per client) is out of scope for this spec.
+- **Multi-vault support:** Supported via the `[vaultId]` URL segment. One `WEBHOOK_API_KEY` protects all vaults; callers select a vault by changing the path segment. Each vault requires a separate Read.ai webhook URL configuration.
