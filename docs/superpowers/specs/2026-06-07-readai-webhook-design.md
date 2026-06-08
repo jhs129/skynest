@@ -71,7 +71,7 @@ Rotating the key means generating a new value, updating the env var, redeploying
 2. **HMAC-SHA256 body verification** — Read.ai sends `X-Read-Signature` as a hex digest. The handler computes `HMAC-SHA256(rawBody, base64Decode(READ_AI_SIGNING_KEY))` and compares using `crypto.timingSafeEqual`. Returns 401 on mismatch.
 3. **Deduplication** — search vault for any document with `request_id` matching the payload's `request_id`. If found, return 200 immediately (idempotent).
 
-After step 2 passes, return 200 to Read.ai. Remaining work (Haiku analysis, vault write) continues via `waitUntil` from `@vercel/functions` so Read.ai's timeout is never a concern.
+Processing is synchronous — verification, Haiku analysis, and vault write all complete before responding. Total processing time (HMAC verify + Blob read + Haiku call ~3–5s + Blob write) is well within `maxDuration: 60` and any reasonable Read.ai response timeout. Synchronous processing is required to return 500 on vault write failure and trigger Read.ai's retry.
 
 ---
 
@@ -250,7 +250,6 @@ New variables (additions to the Service 1 set):
 
 ## Open Items
 
-- **`waitUntil` availability:** confirm `@vercel/functions` `waitUntil` works correctly with Next.js 15 App Router in the version currently deployed. If not available, the handler can process synchronously within `maxDuration: 60`.
 - **Bot account:** decide whether `BOT_GITHUB_TOKEN` belongs to a dedicated `skynest-bot` GitHub account or the repo owner's account. Dedicated account gives cleaner audit trail.
 - **Transcript inclusion:** the Read.ai payload includes a full `transcript` field. Excluded from the vault document by default (can be large). Consider a `READAI_INCLUDE_TRANSCRIPT=true` env flag if needed later.
 - **Multi-vault support:** `createEngine` accepts an optional `vaultId`. Webhook handler uses the default vault. Multi-tenant routing (different vaults per client) is out of scope for this spec.
