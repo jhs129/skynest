@@ -101,6 +101,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       note: 'Ingested via Read.ai webhook',
     });
     await storage.regenerateIndex();
+    console.log(`[skynest] vault write ok vault=${resolvedVaultId} doc=${id} session=${payload.session_id}`);
   } catch (err) {
     console.error('Vault write failed:', err);
     return NextResponse.json({ error: 'vault write failed' }, { status: 500 });
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       message: `ingest: meeting ${payload.session_id}`,
       userToken: botToken,
     })
+    .then(() => console.log(`[skynest] git sync ok vault=${resolvedVaultId} doc=${id}`))
     .catch(console.error);
 
   return NextResponse.json({ ok: true }, { status: 200 });
