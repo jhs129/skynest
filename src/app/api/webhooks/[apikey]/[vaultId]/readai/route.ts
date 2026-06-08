@@ -64,14 +64,18 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
   // Initialize vault engine with bot identity
   const botToken = process.env.BOT_GITHUB_TOKEN ?? '';
+  console.log(`[skynest] step: createEngine vault=${resolvedVaultId} hasToken=${!!botToken} syncProvider=${process.env.VAULT_SYNC_PROVIDER ?? 'github'} repo=${process.env.VAULT_REPO ?? '(unset)'}`);
   const { storage, sync } = createEngine(botToken, resolvedVaultId);
 
   // Step 3: Deduplication
+  console.log(`[skynest] step: dedup check request_id=${payload.request_id}`);
   if (await isDuplicate(storage, payload.request_id)) {
+    console.log(`[skynest] step: duplicate, skipping`);
     return NextResponse.json({ ok: true, duplicate: true }, { status: 200 });
   }
 
   // Read client registry (missing registry is non-fatal)
+  console.log(`[skynest] step: read registry`);
   let registryText = '';
   try {
     const registryNode = await storage.readDocument('clients/registry');
@@ -81,9 +85,12 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   }
 
   // Haiku analysis (failure is non-fatal — document is always written)
+  console.log(`[skynest] step: analyze meeting`);
   const analysis = await analyzeMeeting(payload, registryText);
+  console.log(`[skynest] step: analyze ok haiku_error=${(analysis as { haiku_error?: boolean }).haiku_error ?? false}`);
 
   // Build document
+  console.log(`[skynest] step: build document`);
   const { id, frontmatter, body } = buildMeetingDocument(payload, analysis);
   const node = {
     id,
@@ -93,14 +100,18 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     rawContent: '',
   };
   const content = serializeDocument(node);
+  console.log(`[skynest] step: document built id=${id}`);
 
   // Write to vault — throws on failure → 500 → triggers Read.ai retry
   try {
+    console.log(`[skynest] step: writeDocument`);
     await storage.writeDocument(id, content);
+    console.log(`[skynest] step: publishDocument`);
     await publishDocument(storage, id, {
       editedBy: 'skynest-bot',
       note: 'Ingested via Read.ai webhook',
     });
+    console.log(`[skynest] step: regenerateIndex`);
     await storage.regenerateIndex();
     console.log(`[skynest] vault write ok vault=${resolvedVaultId} doc=${id} session=${payload.session_id}`);
   } catch (err) {
@@ -109,6 +120,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   }
 
   // Fire-and-forget git sync
+  console.log(`[skynest] step: commitFile path=${id}.md`);
   sync
     .commitFile({
       path: `${id}.md`,
@@ -117,7 +129,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       userToken: botToken,
     })
     .then(() => console.log(`[skynest] git sync ok vault=${resolvedVaultId} doc=${id}`))
-    .catch(console.error);
+    .catch((err) => console.error(`[skynest] git sync failed:`, err));
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
