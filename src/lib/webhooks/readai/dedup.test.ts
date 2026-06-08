@@ -30,4 +30,14 @@ describe('isDuplicate', () => {
     const storage = makeStorage([makeDoc('clients/registry', 'req_abc')]);
     expect(await isDuplicate(storage, 'req_abc')).toBe(false);
   });
+
+  it('handles docs with missing frontmatter gracefully', async () => {
+    const storage = makeStorage([{ id: 'meetings/sess_1' }]);
+    expect(await isDuplicate(storage, 'req_abc')).toBe(false);
+  });
+
+  it('handles docs with missing metadata gracefully', async () => {
+    const storage = makeStorage([{ id: 'meetings/sess_1', frontmatter: { title: 'test' } }]);
+    expect(await isDuplicate(storage, 'req_abc')).toBe(false);
+  });
 });

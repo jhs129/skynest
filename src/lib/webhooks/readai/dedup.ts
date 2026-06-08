@@ -5,6 +5,6 @@ export async function isDuplicate(storage: NestStorage, requestId: string): Prom
   return docs.some(
     (node) =>
       node.id.startsWith('meetings/') &&
-      node.frontmatter.metadata?.request_id === requestId,
+      node.frontmatter?.metadata?.request_id === requestId,
   );
 }
