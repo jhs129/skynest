@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { signIn } from '@/lib/auth';
 
 interface Props {
   searchParams: Promise<{ callbackUrl?: string }>;
@@ -19,11 +20,12 @@ export default async function SignInPage({ searchParams }: Props) {
       </div>
 
       <form
-        action="/api/auth/signin/github"
-        method="POST"
+        action={async () => {
+          'use server';
+          await signIn('github', { redirectTo });
+        }}
         className="w-full max-w-xs"
       >
-        <input type="hidden" name="callbackUrl" value={redirectTo} />
         <button
           type="submit"
           className="w-full flex items-center justify-center gap-3 bg-gray-900 hover:bg-gray-800 text-white font-medium px-6 py-3 rounded-lg transition-colors"
