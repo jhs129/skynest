@@ -60,6 +60,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
   }
   const payload = parsed.data;
+  console.log('[skynest] readai payload', JSON.stringify(payload, null, 2));
 
   // Initialize vault engine with bot identity
   const botToken = process.env.BOT_GITHUB_TOKEN ?? '';
