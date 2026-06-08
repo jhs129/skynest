@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import {
   publishDocument,
@@ -119,17 +119,21 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'vault write failed' }, { status: 500 });
   }
 
-  // Fire-and-forget git sync
+  // Git sync — runs after response is sent, kept alive by after()
   console.log(`[skynest] step: commitFile path=${id}.md`);
-  sync
-    .commitFile({
-      path: `${id}.md`,
-      content: Buffer.from(content, 'utf-8'),
-      message: `ingest: meeting ${payload.session_id}`,
-      userToken: botToken,
-    })
-    .then(() => console.log(`[skynest] git sync ok vault=${resolvedVaultId} doc=${id}`))
-    .catch((err) => console.error(`[skynest] git sync failed:`, err));
+  after(async () => {
+    try {
+      await sync.commitFile({
+        path: `${id}.md`,
+        content: Buffer.from(content, 'utf-8'),
+        message: `ingest: meeting ${payload.session_id}`,
+        userToken: botToken,
+      });
+      console.log(`[skynest] git sync ok vault=${resolvedVaultId} doc=${id}`);
+    } catch (err) {
+      console.error(`[skynest] git sync failed:`, err);
+    }
+  });
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
