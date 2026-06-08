@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
     const { baseUrl } = await resolveServerUrls();
-    const loginUrl = new URL('/api/auth/signin', baseUrl);
+    const loginUrl = new URL('/auth/signin', baseUrl);
     loginUrl.searchParams.set('callbackUrl', req.url);
     return NextResponse.redirect(loginUrl);
   }
