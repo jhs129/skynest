@@ -57,6 +57,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'invalid json' }, { status: 400 });
   }
   console.log('[skynest] raw payload keys:', Object.keys(jsonBody as object));
+  console.log('[skynest] full payload:', JSON.stringify(jsonBody));
   const parsed = ReadAiPayloadSchema.safeParse(jsonBody);
   if (!parsed.success) {
     console.error('[skynest] schema validation failed:', JSON.stringify(parsed.error.issues));

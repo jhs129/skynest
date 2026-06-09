@@ -8,8 +8,9 @@ const PersonSchema = z.object({
 });
 
 const TranscriptSpeakerBlockSchema = z.object({
-  start_time: z.string(),
-  end_time: z.string(),
+  // docs say string but real payloads send numbers
+  start_time: z.union([z.string(), z.number()]),
+  end_time: z.union([z.string(), z.number()]),
   speaker: z.object({ name: z.string() }),
   words: z.string(),
 });
