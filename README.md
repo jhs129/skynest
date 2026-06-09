@@ -20,7 +20,7 @@ The original Context Nest runs as a local stdio MCP server with vault files on y
 
 Skynest adapts Context Nest for serverless cloud deployment on Vercel. It replaces the local filesystem with **Vercel Blob** — durable, globally accessible object storage — so vault documents are always available without any local process running. Authentication is handled by **GitHub OAuth 2.1**: every team member signs in with their own GitHub account, and every write is committed to a private GitHub repository under that user's identity. You get a complete, accurate audit trail of who wrote what and when, using real git commits — not a synthetic log.
 
-All 18+ Context Nest MCP tools — `read_document`, `search`, `create_document`, `update_document`, `read_version`, integrity checks, and more — are exposed over HTTPS. Connect once from Claude Code, Cursor, or any MCP-compatible AI tool, and your team's entire knowledge vault is immediately accessible from any machine, any time.
+All 19 Context Nest MCP tools — `read_document`, `search`, `create_document`, `update_document`, `read_version`, integrity checks, and more — are exposed over HTTPS. Connect once from Claude Code, Cursor, or any MCP-compatible AI tool, and your team's entire knowledge vault is immediately accessible from any machine, any time.
 
 > Skynest is built on the open-source Context Nest engine by PromptOwl (AGPL-3.0). The vault storage layer has been adapted to run on Vercel's serverless infrastructure, with GitHub OAuth and Vercel Blob replacing the local filesystem.
 
@@ -33,6 +33,7 @@ All 18+ Context Nest MCP tools — `read_document`, `search`, `create_document`,
 | **Always on** | Deployed on Vercel — your vault is reachable over HTTPS 24/7, not just when your Mac is open. |
 | **Multi-user** | Every team member signs in with their own GitHub account. Writes are committed with native git attribution. |
 | **Git-versioned** | Every document change is a real commit in a private GitHub repository — full history, diffs, and rollback. |
+| **read.ai integration** | Meeting transcripts are automatically ingested into the vault when a meeting ends — no manual action needed. |
 
 ---
 
@@ -57,6 +58,7 @@ All 18+ Context Nest MCP tools — `read_document`, `search`, `create_document`,
    │   • Vault files: Vercel Blob (read/write) + GitHub API (commit/history)│
    │   • WRITE tools → Vercel Blob put → GitHub API PUT /contents           │
    │                    (commit attributed to session user's GitHub token)   │
+   │   • /api/webhooks/[apikey]/[vaultId]/readai (read.ai ingest)           │
    └───────▲──────────────────────────────────────────────┬────────────────┘
            │ MCP over HTTPS (GitHub OAuth)                 │ GitHub API
            │                                               ▼
@@ -64,6 +66,9 @@ All 18+ Context Nest MCP tools — `read_document`, `search`, `create_document`,
    any MCP-compatible tool                       <owner>/contextnest-vault
    (each user's own GitHub                       (source of truth +
     account → attributed commits)                 full version history)
+           ▲
+           │ webhook POST (HMAC signed)
+   read.ai (meeting_end event)
 ```
 
 **Tech stack:** Next.js 15 App Router · TypeScript · pnpm · `mcp-handler` · `@vercel/blob` · NextAuth v5 (GitHub provider) · `jose` (RS256 JWTs) · `zod`
@@ -125,41 +130,39 @@ pnpm dlx vercel
 In the Vercel project dashboard (**Settings → Environment Variables**), add the following:
 
 ```bash
-# GitHub OAuth App
+# GitHub OAuth App (for user sign-in)
 AUTH_GITHUB_ID=<your-github-oauth-client-id>
 AUTH_GITHUB_SECRET=<your-github-oauth-client-secret>
 
 # NextAuth
-AUTH_SECRET=<random-32-char-string>  # openssl rand -base64 32
+AUTH_SECRET=<random-32-char-string>    # openssl rand -base64 32
 NEXTAUTH_URL=https://<your-vercel-app>.vercel.app
 
 # OAuth JWT signing (from step 3)
 OAUTH_PRIVATE_KEY=<generated-private-key>
 OAUTH_PUBLIC_KEY=<generated-public-key>
 
-# Vault GitHub repo (owner/repo)
-VAULT_GITHUB_OWNER=<github-username-or-org>
-VAULT_GITHUB_REPO=contextnest-vault
-
-# Vercel Blob (auto-populated when you connect a Blob store)
-BLOB_READ_WRITE_TOKEN=<vercel-blob-token>
-
 # Storage backend
 CONTEXTNEST_STORAGE=blob
-```
+CONTEXTNEST_BLOB_PREFIX=vault     # namespace prefix for Blob objects
 
-See `.env.example` for the full list with descriptions.
+# Vercel Blob (auto-populated when you connect a Blob store in step 6)
+BLOB_READ_WRITE_TOKEN=<vercel-blob-token>
+
+# Vault GitHub sync — single "owner/repo" string
+VAULT_REPO=<github-username-or-org>/contextnest-vault
+VAULT_BRANCH=main                  # optional, defaults to main
+VAULT_SYNC_PROVIDER=github         # 'github' (default) or 'none' to disable
+
+# read.ai webhook (optional — only needed if using the webhook integration)
+WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path
+READ_AI_SIGNING_KEY=<hmac-key>     # from the read.ai dashboard
+BOT_GITHUB_TOKEN=<github-pat>      # PAT with repo scope, for bot vault writes
+```
 
 ### 6. Provision Vercel Blob
 
 In the Vercel project dashboard, go to **Storage → Connect Store** and create or attach a Blob store. The `BLOB_READ_WRITE_TOKEN` will be added automatically.
-
-Then run a one-time sync to populate Blob from the vault repo:
-
-```bash
-VAULT_GITHUB_OWNER=<owner> VAULT_GITHUB_REPO=contextnest-vault \
-  pnpm tsx scripts/sync-vault-to-blob.ts
-```
 
 ### 7. Redeploy and verify
 
@@ -246,7 +249,7 @@ Skynest exposes a standard MCP HTTP endpoint with OAuth 2.1. Any tool that suppo
 | `resolve` | Execute a selector query with graph traversal |
 | `read_document` | Read a document by URI or path |
 | `list_documents` | List documents with optional type/status/tag filters |
-| `document_format` | Get the document format spec |
+| `document_format` | Get the document format spec (call before creating docs) |
 | `read_index` | Return the context.yaml index |
 | `read_pack` | Resolve and return a context pack with documents |
 | `search` | Full-text search with graph traversal |
@@ -262,6 +265,37 @@ Skynest exposes a standard MCP HTTP endpoint with OAuth 2.1. Any tool that suppo
 | `update_document` | Update a document's title, tags, status, or body |
 | `delete_document` | Delete a document and its version history |
 | `publish_document` | Publish a document (bump version, create checkpoint) |
+
+**Governance tools**
+
+| Tool | Description |
+|---|---|
+| `stage_drift_suggestion` | Capture an out-of-band edit as a staged suggestion for review |
+| `list_suggestions` | List all staged suggestions for a document |
+| `approve_suggestion` | Approve a suggestion: apply patch, bump version, archive |
+| `reject_suggestion` | Reject a suggestion: archive without modifying the document |
+
+---
+
+## read.ai Webhook
+
+Skynest can automatically ingest meeting transcripts from [read.ai](https://read.ai) when a meeting ends. Configure the webhook in your read.ai workspace settings:
+
+**Webhook URL:**
+```
+https://YOUR_SKYNEST_URL/api/webhooks/YOUR_WEBHOOK_API_KEY/default/readai
+```
+
+Replace `YOUR_WEBHOOK_API_KEY` with the value you set in the `WEBHOOK_API_KEY` environment variable. Replace `default` with your vault ID if you're using a named vault.
+
+Set the **signing key** in read.ai to the value you set in `READ_AI_SIGNING_KEY`.
+
+When a meeting ends, read.ai POSTs the transcript to Skynest, which:
+1. Verifies the HMAC signature
+2. Deduplicates by `request_id`
+3. Uses Claude Haiku to classify the meeting (client, tags, summary, action items)
+4. Writes a structured node to `nodes/meetings/YYYY-MM-DD-<slug>.md`
+5. Commits the file to the vault repo via the bot GitHub token
 
 ---
 
@@ -283,7 +317,7 @@ pnpm dev
 
 The app runs at `http://localhost:3000`. The MCP endpoint is at `http://localhost:3000/api/mcp`.
 
-For local development, set `CONTEXTNEST_STORAGE=fs` and `CONTEXTNEST_VAULT_PATH=/path/to/your/vault` to use a local filesystem vault instead of Vercel Blob.
+For local development, set `CONTEXTNEST_STORAGE=fs` and `CONTEXTNEST_VAULT_PATH=/path/to/your/vault` to use a local filesystem vault instead of Vercel Blob. Set `VAULT_SYNC_PROVIDER=none` to disable git sync.
 
 ---
 
@@ -293,22 +327,29 @@ For local development, set `CONTEXTNEST_STORAGE=fs` and `CONTEXTNEST_VAULT_PATH=
 skynest/
 ├── src/
 │   ├── app/
-│   │   ├── api/mcp/route.ts          # MCP endpoint (mcp-handler + OAuth middleware)
-│   │   ├── oauth/                    # OAuth 2.1 authorize/token/register endpoints
-│   │   ├── .well-known/              # OAuth metadata + JWKS endpoints
-│   │   ├── faq/page.tsx              # Connection guide
-│   │   └── page.tsx                  # Home page
+│   │   ├── api/
+│   │   │   ├── mcp/route.ts                          # MCP endpoint (mcp-handler + OAuth middleware)
+│   │   │   └── webhooks/[apikey]/[vaultId]/readai/   # read.ai ingest webhook
+│   │   ├── oauth/                                    # OAuth 2.1 authorize/token/register endpoints
+│   │   ├── .well-known/                              # OAuth metadata + JWKS endpoints
+│   │   ├── docs/page.tsx                             # Documentation
+│   │   ├── faq/page.tsx                              # Connection guide
+│   │   └── page.tsx                                  # Home page
 │   ├── components/
+│   │   ├── home/                                     # Home page sections
+│   │   └── docs/                                     # Docs page sections
 │   └── lib/
-│       ├── oauth/                    # JWT signing, PKCE, token helpers
-│       └── mcp/
-│           ├── tools.ts              # Tool registration
-│           ├── auth.ts               # MCP token validation
-│           └── vault/
-│               ├── github.ts         # GitHub API commit layer (write attribution)
-│               └── provider.ts       # Storage factory wiring (Blob provider)
-├── vendor/                           # Vendored Context Nest engine (fork of PromptOwl/ContextNest)
-├── scripts/                          # init-vault, sync-vault-to-blob, oauth-gen-keypair
+│       ├── oauth/                                    # JWT signing, PKCE, token helpers
+│       ├── mcp/
+│       │   ├── tools.ts                              # Tool registration (19 tools)
+│       │   └── auth.ts                               # MCP token validation
+│       ├── vault/
+│       │   ├── index.ts                              # createEngine factory
+│       │   ├── storage/                              # BlobStorageProvider + factory
+│       │   └── sync/                                 # GitVaultSyncProvider + GitHub impl
+│       └── webhooks/readai/                          # read.ai payload schema, verify, dedup, analyze, document
+├── vendor/                                           # Vendored Context Nest engine (fork of PromptOwl/ContextNest)
+├── scripts/                                          # init-vault.sh, oauth-gen-keypair.ts
 ├── vercel.json
 └── .env.example
 ```

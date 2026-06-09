@@ -20,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav className="flex gap-6 text-sm font-medium text-gray-600">
               <Link href="/" className="hover:text-gray-900 transition-colors">Home</Link>
+              <Link href="/docs" className="hover:text-gray-900 transition-colors">Docs</Link>
               <Link href="/faq" className="hover:text-gray-900 transition-colors">FAQ</Link>
               <Link href="/admin" className="hover:text-gray-900 transition-colors">Admin</Link>
             </nav>

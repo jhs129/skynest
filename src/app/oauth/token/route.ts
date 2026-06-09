@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthCode, signAccessToken } from '@/lib/oauth/jwt';
 import { verifyPkce } from '@/lib/oauth/pkce';
 import { resolveServerUrls } from '@/lib/oauth/urls';
+import { ACCESS_TOKEN_TTL_SECONDS } from '@/lib/oauth/config';
 
 export async function POST(req: NextRequest) {
   const body = await req.formData();
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     {
       access_token: accessToken,
       token_type: 'Bearer',
-      expires_in: 8 * 60 * 60,
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
       scope: 'mcp:read mcp:write',
     },
     { headers: { 'Cache-Control': 'no-store' } },

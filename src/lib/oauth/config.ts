@@ -6,7 +6,9 @@
 export const OAUTH_SCOPES = ['mcp:read', 'mcp:write'] as const;
 export type OAuthScope = (typeof OAUTH_SCOPES)[number];
 
-export const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60; // 8 hours (no refresh tokens in MVP)
+export const ACCESS_TOKEN_TTL_SECONDS = process.env.ACCESS_TOKEN_TTL_SECONDS
+  ? parseInt(process.env.ACCESS_TOKEN_TTL_SECONDS, 10)
+  : 7 * 24 * 60 * 60; // default: 7 days
 export const AUTH_CODE_TTL_SECONDS = 60; // 1 minute
 
 export const OAUTH_ALGORITHM = 'RS256' as const;
