@@ -20,6 +20,12 @@ import type { McpExtra } from './auth';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// MCP OAuth tokens are user-scoped and may not have repo write access.
+// BOT_GITHUB_TOKEN is a PAT with contents:write on the vault repo.
+function gitToken(userToken: string): string {
+  return process.env.BOT_GITHUB_TOKEN || userToken;
+}
+
 function jsonResult(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
@@ -519,7 +525,7 @@ export function registerTools(server: McpServer): void {
           path: `${id}.md`,
           content: Buffer.from(content, 'utf-8'),
           message: `create ${id}`,
-          userToken,
+          userToken: gitToken(userToken),
         })
         .catch(console.error);
 
@@ -590,7 +596,7 @@ export function registerTools(server: McpServer): void {
           path: `${id}.md`,
           content: Buffer.from(content, 'utf-8'),
           message: `update ${id}`,
-          userToken,
+          userToken: gitToken(userToken),
         })
         .catch(console.error);
 
@@ -623,7 +629,7 @@ export function registerTools(server: McpServer): void {
         .deleteFile({
           path: `${id}.md`,
           message: `delete ${id}`,
-          userToken,
+          userToken: gitToken(userToken),
         })
         .catch(console.error);
 
@@ -667,7 +673,7 @@ export function registerTools(server: McpServer): void {
           path: `${id}.md`,
           content: Buffer.from(serializeDocument(buf), 'utf-8'),
           message: `publish ${id} v${result.node.frontmatter.version}`,
-          userToken,
+          userToken: gitToken(userToken),
         })
         .catch(console.error);
 
@@ -806,7 +812,7 @@ export function registerTools(server: McpServer): void {
           path: `${id}.md`,
           content: Buffer.from(serializeDocument(updated), 'utf-8'),
           message: `approve suggestion ${suggestion_id} on ${id}`,
-          userToken,
+          userToken: gitToken(userToken),
         })
         .catch(console.error);
 
