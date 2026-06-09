@@ -55,6 +55,31 @@ describe('ReadAiPayloadSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts participant with null name fields', () => {
+    const payload = {
+      ...VALID_PAYLOAD,
+      participants: [{ name: null, first_name: 'John', last_name: null, email: null }],
+      owner: { name: 'John', first_name: 'John', last_name: null, email: null },
+    };
+    const result = ReadAiPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts chapter_summaries with string topics', () => {
+    const payload = {
+      ...VALID_PAYLOAD,
+      chapter_summaries: [{ title: 'Intro', description: 'Intro.', topics: ['topic one', 'topic two'] }],
+    };
+    const result = ReadAiPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts transcript as an object', () => {
+    const payload = { ...VALID_PAYLOAD, transcript: { segments: [{ speaker: 'John', text: 'Hello' }] } };
+    const result = ReadAiPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
   it('rejects payload missing required request_id', () => {
     const { request_id: _, ...without } = VALID_PAYLOAD;
     const result = ReadAiPayloadSchema.safeParse(without);
