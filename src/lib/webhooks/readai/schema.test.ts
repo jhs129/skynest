@@ -79,12 +79,24 @@ describe('ReadAiPayloadSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects chapter_summaries with missing description', () => {
+  it('accepts chapter_summaries with missing description (defaults to empty string)', () => {
     const payload = {
       ...VALID_PAYLOAD,
       chapter_summaries: [{ title: 'Intro' }],
     };
     const result = ReadAiPayloadSchema.safeParse(payload);
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.chapter_summaries[0].description).toBe('');
+    }
+  });
+
+  it('accepts payload with transcript field', () => {
+    const payload = { ...VALID_PAYLOAD, transcript: 'John: Hello\nJane: Hi there' };
+    const result = ReadAiPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transcript).toBe('John: Hello\nJane: Hi there');
+    }
   });
 });

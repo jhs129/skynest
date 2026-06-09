@@ -11,7 +11,7 @@ const TextItemSchema = z.object({ text: z.string() });
 
 const ChapterSummarySchema = z.object({
   title: z.string(),
-  description: z.string(),
+  description: z.string().optional().default(''),
   topics: z.array(TextItemSchema).optional().default([]),
 });
 
@@ -32,6 +32,7 @@ export const ReadAiPayloadSchema = z.object({
   chapter_summaries: z.array(ChapterSummarySchema).optional().default([]),
   platform: z.string().optional(),
   platform_meeting_id: z.string().optional(),
+  transcript: z.string().optional(),
 });
 
 export type ReadAiPayload = z.infer<typeof ReadAiPayloadSchema>;
