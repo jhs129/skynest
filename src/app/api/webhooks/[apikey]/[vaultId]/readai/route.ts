@@ -53,11 +53,14 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   try {
     jsonBody = JSON.parse(rawBody);
   } catch {
+    console.error('[skynest] invalid json body (first 500 chars):', rawBody.slice(0, 500));
     return NextResponse.json({ error: 'invalid json' }, { status: 400 });
   }
+  console.log('[skynest] raw payload keys:', Object.keys(jsonBody as object));
   const parsed = ReadAiPayloadSchema.safeParse(jsonBody);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
+    console.error('[skynest] schema validation failed:', JSON.stringify(parsed.error.issues));
+    return NextResponse.json({ error: 'invalid payload', issues: parsed.error.issues }, { status: 400 });
   }
   const payload = parsed.data;
   console.log('[skynest] readai payload', JSON.stringify(payload, null, 2));
