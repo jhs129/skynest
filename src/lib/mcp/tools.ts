@@ -20,12 +20,6 @@ import type { McpExtra } from './auth';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// MCP OAuth tokens are user-scoped and may not have repo write access.
-// BOT_GITHUB_TOKEN is a PAT with contents:write on the vault repo.
-function gitToken(userToken: string): string {
-  return process.env.BOT_GITHUB_TOKEN || userToken;
-}
-
 function jsonResult(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
@@ -519,15 +513,13 @@ export function registerTools(server: McpServer): void {
 
       await storage.regenerateIndex();
 
-      // Fire-and-forget Git sync
-      sync
-        .commitFile({
-          path: `${id}.md`,
-          content: Buffer.from(content, 'utf-8'),
-          message: `create ${id}`,
-          userToken: gitToken(userToken),
-        })
-        .catch(console.error);
+      // Git sync — errors propagate to the caller
+      await sync.commitFile({
+        path: `${id}.md`,
+        content: Buffer.from(content, 'utf-8'),
+        message: `create ${id}`,
+        userToken,
+      });
 
       return jsonResult({
         id: result.node.id,
@@ -590,15 +582,13 @@ export function registerTools(server: McpServer): void {
 
       await storage.regenerateIndex();
 
-      // Fire-and-forget Git sync
-      sync
-        .commitFile({
-          path: `${id}.md`,
-          content: Buffer.from(content, 'utf-8'),
-          message: `update ${id}`,
-          userToken: gitToken(userToken),
-        })
-        .catch(console.error);
+      // Git sync — errors propagate to the caller
+      await sync.commitFile({
+        path: `${id}.md`,
+        content: Buffer.from(content, 'utf-8'),
+        message: `update ${id}`,
+        userToken,
+      });
 
       return jsonResult({
         id: result.node.id,
@@ -624,14 +614,12 @@ export function registerTools(server: McpServer): void {
       await storage.deleteDocument(id);
       await storage.regenerateIndex();
 
-      // Fire-and-forget Git sync
-      sync
-        .deleteFile({
-          path: `${id}.md`,
-          message: `delete ${id}`,
-          userToken: gitToken(userToken),
-        })
-        .catch(console.error);
+      // Git sync — errors propagate to the caller
+      await sync.deleteFile({
+        path: `${id}.md`,
+        message: `delete ${id}`,
+        userToken,
+      });
 
       return jsonResult({
         id,
@@ -666,16 +654,14 @@ export function registerTools(server: McpServer): void {
 
       await storage.regenerateIndex();
 
-      // Fire-and-forget Git sync — sync the .md file as-is
+      // Git sync — errors propagate to the caller — sync the .md file as-is
       const buf = await storage.readDocument(id);
-      sync
-        .commitFile({
-          path: `${id}.md`,
-          content: Buffer.from(serializeDocument(buf), 'utf-8'),
-          message: `publish ${id} v${result.node.frontmatter.version}`,
-          userToken: gitToken(userToken),
-        })
-        .catch(console.error);
+      await sync.commitFile({
+        path: `${id}.md`,
+        content: Buffer.from(serializeDocument(buf), 'utf-8'),
+        message: `publish ${id} v${result.node.frontmatter.version}`,
+        userToken,
+      });
 
       return jsonResult({
         id,
@@ -805,16 +791,14 @@ export function registerTools(server: McpServer): void {
 
       await storage.regenerateIndex();
 
-      // Fire-and-forget Git sync
+      // Git sync — errors propagate to the caller
       const updated = await storage.readDocument(id);
-      sync
-        .commitFile({
-          path: `${id}.md`,
-          content: Buffer.from(serializeDocument(updated), 'utf-8'),
-          message: `approve suggestion ${suggestion_id} on ${id}`,
-          userToken: gitToken(userToken),
-        })
-        .catch(console.error);
+      await sync.commitFile({
+        path: `${id}.md`,
+        content: Buffer.from(serializeDocument(updated), 'utf-8'),
+        message: `approve suggestion ${suggestion_id} on ${id}`,
+        userToken,
+      });
 
       return jsonResult({
         document_id: id,
