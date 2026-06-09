@@ -32,8 +32,8 @@ export function buildMeetingDocument(
   const id = `nodes/meetings/${date}-${slug}`;
 
   const participants = payload.participants
-    .map((p) => p.email || p.name)
-    .filter((v): v is string => Boolean(v));
+    .map((p) => p.email ?? p.name ?? null)
+    .filter((v): v is string => v !== null && v !== undefined);
 
   const metadataRaw: Record<string, unknown> = {
     document_type: 'meeting',

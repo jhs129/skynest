@@ -7,6 +7,18 @@ const PersonSchema = z.object({
   email: z.string().nullable().optional(),
 });
 
+const TranscriptSpeakerBlockSchema = z.object({
+  start_time: z.string(),
+  end_time: z.string(),
+  speaker: z.object({ name: z.string() }),
+  words: z.string(),
+});
+
+const TranscriptSchema = z.object({
+  speaker_blocks: z.array(TranscriptSpeakerBlockSchema).optional().default([]),
+  speakers: z.array(z.object({ name: z.string() })).optional().default([]),
+});
+
 const TextItemSchema = z.object({ text: z.string() });
 
 // Read.ai sends chapter topics as plain strings, not {text} objects
@@ -35,8 +47,7 @@ export const ReadAiPayloadSchema = z.object({
   chapter_summaries: z.array(ChapterSummarySchema).optional().default([]),
   platform: z.string().optional(),
   platform_meeting_id: z.string().optional(),
-  // transcript is an object with unknown structure from Read.ai
-  transcript: z.unknown().optional(),
+  transcript: TranscriptSchema.optional(),
 });
 
 export type ReadAiPayload = z.infer<typeof ReadAiPayloadSchema>;

@@ -74,8 +74,16 @@ describe('ReadAiPayloadSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts transcript as an object', () => {
-    const payload = { ...VALID_PAYLOAD, transcript: { segments: [{ speaker: 'John', text: 'Hello' }] } };
+  it('accepts transcript with speaker_blocks and speakers', () => {
+    const payload = {
+      ...VALID_PAYLOAD,
+      transcript: {
+        speaker_blocks: [
+          { start_time: '1719514000000', end_time: '1719514001000', speaker: { name: 'Alice' }, words: 'Hello!' },
+        ],
+        speakers: [{ name: 'Alice' }],
+      },
+    };
     const result = ReadAiPayloadSchema.safeParse(payload);
     expect(result.success).toBe(true);
   });
@@ -116,12 +124,4 @@ describe('ReadAiPayloadSchema', () => {
     }
   });
 
-  it('accepts payload with transcript field', () => {
-    const payload = { ...VALID_PAYLOAD, transcript: 'John: Hello\nJane: Hi there' };
-    const result = ReadAiPayloadSchema.safeParse(payload);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.transcript).toBe('John: Hello\nJane: Hi there');
-    }
-  });
 });
