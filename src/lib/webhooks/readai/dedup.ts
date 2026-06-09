@@ -4,7 +4,7 @@ export async function isDuplicate(storage: NestStorage, requestId: string): Prom
   const docs = await storage.discoverDocuments();
   return docs.some(
     (node) =>
-      node.id.startsWith('meetings/') &&
+      (node.id.startsWith('nodes/meetings/') || node.id.startsWith('meetings/')) &&
       node.frontmatter?.metadata?.request_id === requestId,
   );
 }

@@ -7,11 +7,29 @@ export interface MeetingDocumentParts {
   body: string;
 }
 
+function buildDateSlug(payload: ReadAiPayload, analysis: HaikuAnalysis): { date: string; slug: string } {
+  const date = payload.start_time
+    ? payload.start_time.slice(0, 10)
+    : 'unknown-date';
+
+  const titleSlug = payload.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+
+  const clientPart = analysis.client_slug !== 'unknown' ? `${analysis.client_slug}-` : '';
+  const slug = `${clientPart}${titleSlug}`.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+
+  return { date, slug };
+}
+
 export function buildMeetingDocument(
   payload: ReadAiPayload,
   analysis: HaikuAnalysis & { haiku_error?: boolean },
 ): MeetingDocumentParts {
-  const id = `meetings/${payload.session_id}`;
+  const { date, slug } = buildDateSlug(payload, analysis);
+  const id = `nodes/meetings/${date}-${slug}`;
 
   const participants = payload.participants
     .map((p) => p.email || p.name)
@@ -35,7 +53,7 @@ export function buildMeetingDocument(
   );
 
   const frontmatter: Frontmatter = {
-    title: `${analysis.client} — ${payload.title}`,
+    title: `${analysis.client} — ${payload.title} — ${date}`,
     type: 'document',
     status: 'published',
     tags: analysis.tags,
