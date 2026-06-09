@@ -12,7 +12,12 @@ export function DocsConnecting() {
           </ul>
         </div>
 
-        <p className="text-sm">Replace <InlineCode>YOUR_SKYNEST_URL</InlineCode> with your actual deployment URL in all examples below.</p>
+        <p className="text-sm">
+          Replace <InlineCode>YOUR_SKYNEST_URL</InlineCode> with your actual deployment URL in all examples below.
+          To connect to a specific vault, append the vault ID to the URL:{' '}
+          <InlineCode>https://YOUR_SKYNEST_URL/api/mcp/YOUR_VAULT_ID</InlineCode>.
+          Omitting the vault ID uses the default vault configured on the server.
+        </p>
 
         <SubSection title="Claude Code CLI">
           <CodeBlock>{`claude mcp add --transport http skynest https://YOUR_SKYNEST_URL/api/mcp`}</CodeBlock>
@@ -31,6 +36,29 @@ export function DocsConnecting() {
 }`}</CodeBlock>
             </div>
           </details>
+        </SubSection>
+
+        <SubSection title="Claude Desktop App">
+          <div className="rounded-lg bg-amber-50 border border-amber-100 p-3 mb-3">
+            <p className="text-sm text-amber-800">
+              <strong>Admin setup required:</strong> Claude Desktop uses a web-based OAuth callback
+              (<InlineCode>https://claude.ai/...</InlineCode>). Add{' '}
+              <InlineCode>OAUTH_ALLOWED_REDIRECT_ORIGINS=https://claude.ai</InlineCode> to your
+              Skynest deployment environment variables before connecting.
+            </p>
+          </div>
+          <ol className="space-y-2 text-sm list-decimal list-inside">
+            <li>Open the Claude Desktop app and go to <strong className="text-gray-800">Settings</strong>.</li>
+            <li>Navigate to <strong className="text-gray-800">Integrations</strong> and click <strong className="text-gray-800">Add MCP Server</strong>.</li>
+            <li>
+              Enter:
+              <div className="mt-2 ml-4">
+                <CodeBlock>{`Name:      skynest
+URL:       https://YOUR_SKYNEST_URL/api/mcp`}</CodeBlock>
+              </div>
+            </li>
+            <li>Save. You&apos;ll be redirected to sign in with GitHub on first use.</li>
+          </ol>
         </SubSection>
 
         <SubSection title="Claude Code App (Desktop)">
@@ -66,7 +94,8 @@ URL:       https://YOUR_SKYNEST_URL/api/mcp`}</CodeBlock>
           <p className="text-sm">
             Skynest exposes a standard MCP HTTP endpoint with OAuth 2.1. Any tool that supports
             MCP over HTTP with OAuth 2.1 should work — use{' '}
-            <InlineCode>https://YOUR_SKYNEST_URL/api/mcp</InlineCode> as the endpoint.
+            <InlineCode>https://YOUR_SKYNEST_URL/api/mcp</InlineCode> as the endpoint (or{' '}
+            <InlineCode>https://YOUR_SKYNEST_URL/api/mcp/YOUR_VAULT_ID</InlineCode> for a specific vault).
           </p>
         </SubSection>
       </div>

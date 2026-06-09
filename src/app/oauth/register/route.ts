@@ -12,6 +12,27 @@ function isLoopback(uri: string): boolean {
   }
 }
 
+// RFC 8252 §7.1 — custom URI schemes (e.g. myapp://) are safe for native apps.
+function isCustomScheme(uri: string): boolean {
+  try {
+    const { protocol } = new URL(uri);
+    return protocol !== 'http:' && protocol !== 'https:';
+  } catch {
+    return false;
+  }
+}
+
+// Allows HTTPS redirect URIs whose origin appears in OAUTH_ALLOWED_REDIRECT_ORIGINS.
+// Needed for desktop apps that use a web-based OAuth callback (e.g. Claude Desktop → https://claude.ai/...).
+function isAllowedOrigin(uri: string, allowedOrigins: string[]): boolean {
+  try {
+    const { origin } = new URL(uri);
+    return allowedOrigins.some((o) => origin === o || uri.startsWith(o));
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const registrationSecret = process.env.OAUTH_REGISTRATION_SECRET;
 
@@ -39,16 +60,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
   } else {
-    // No secret: open registration allowed only for loopback redirect URIs.
-    // MCP native clients (Claude Code) always use http://localhost:<port> callbacks.
-    // Non-loopback URIs without a secret would enable OAuth phishing via redirect.
-    const nonLoopback = redirect_uris.filter(uri => !isLoopback(uri));
-    if (nonLoopback.length > 0) {
+    // No secret: allow loopback (Claude Code CLI), custom schemes (native apps per RFC 8252 §7.1),
+    // and HTTPS origins listed in OAUTH_ALLOWED_REDIRECT_ORIGINS (e.g. Claude Desktop via https://claude.ai).
+    // Pure HTTPS non-loopback URIs without explicit allowlisting would enable OAuth phishing.
+    const allowedOrigins = (process.env.OAUTH_ALLOWED_REDIRECT_ORIGINS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const disallowed = redirect_uris.filter(
+      (uri) => !isLoopback(uri) && !isCustomScheme(uri) && !isAllowedOrigin(uri, allowedOrigins),
+    );
+    if (disallowed.length > 0) {
       return NextResponse.json(
         {
           error: 'invalid_redirect_uri',
           error_description:
-            'Non-loopback redirect URIs require OAUTH_REGISTRATION_SECRET to be configured',
+            'Non-loopback redirect URIs require OAUTH_REGISTRATION_SECRET or OAUTH_ALLOWED_REDIRECT_ORIGINS to be configured',
         },
         { status: 400 },
       );
