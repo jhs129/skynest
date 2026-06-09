@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
       (uri) => !isLoopback(uri) && !isCustomScheme(uri) && !isAllowedOrigin(uri, allowedOrigins),
     );
     if (disallowed.length > 0) {
+      console.error('[oauth/register] rejected redirect_uris:', disallowed, '— set OAUTH_ALLOWED_REDIRECT_ORIGINS to allow them');
       return NextResponse.json(
         {
           error: 'invalid_redirect_uri',
