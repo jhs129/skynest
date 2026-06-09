@@ -4,6 +4,7 @@ import { DocsOverview } from '@/components/docs/DocsOverview';
 import { DocsArchitecture } from '@/components/docs/DocsArchitecture';
 import { DocsDeployment } from '@/components/docs/DocsDeployment';
 import { DocsConnecting } from '@/components/docs/DocsConnecting';
+import { DocsSkill } from '@/components/docs/DocsSkill';
 import { DocsMcpTools } from '@/components/docs/DocsMcpTools';
 import { DocsWebhook } from '@/components/docs/DocsWebhook';
 import { DocsLocalDev } from '@/components/docs/DocsLocalDev';
@@ -18,6 +19,7 @@ const TOC = [
   { id: 'architecture', label: 'Architecture' },
   { id: 'deploy', label: 'Deploying Skynest' },
   { id: 'connect', label: 'Connecting your AI tool' },
+  { id: 'skill', label: 'Claude Code skill' },
   { id: 'tools', label: 'Available MCP tools' },
   { id: 'webhook', label: 'read.ai Webhook' },
   { id: 'local-dev', label: 'Local development' },
@@ -59,6 +61,7 @@ export default function DocsPage() {
         <DocsArchitecture />
         <DocsDeployment />
         <DocsConnecting />
+        <DocsSkill />
         <DocsMcpTools />
         <DocsWebhook />
         <DocsLocalDev />
