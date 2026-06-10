@@ -20,7 +20,7 @@ const UNKNOWN: MeetingAnalysis = {
   action_items: [],
 };
 
-function buildPrompt(input: MeetingInput, k: TaggerKnowledge): string {
+function buildPrompt(input: MeetingInput, knowledge: TaggerKnowledge): string {
   const participants = input.participants
     .map((p) => p.email || p.name || 'unknown')
     .join(', ');
@@ -36,14 +36,14 @@ function buildPrompt(input: MeetingInput, k: TaggerKnowledge): string {
 Match participant email domains and meeting content to the BILLING client and project.
 When the end client differs from who is billed (e.g. ALZ.org under Laughlin Constable,
 Georgia Core under Radical Design, Aventiv under Goods & Services), report both.
-${k.registry || '(no registry available)'}
+${knowledge.registry || '(no registry available)'}
 
 ## Canonical Topic Vocabulary
 Map topics to these slugs FIRST. Add at most two free-form topics for specifics.
-${k.topicVocab || '(no vocabulary available)'}
+${knowledge.topicVocab || '(no vocabulary available)'}
 
 ## Tagging Examples & Corrections
-${k.examples || '(none)'}
+${knowledge.examples || '(none)'}
 
 ## Meeting Report
 Title: ${input.title}

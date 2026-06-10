@@ -63,15 +63,35 @@ describe('analyzeMeeting', () => {
     expect(r.tagger_error).toBe(true);
   });
 
-  it('forces unknown client when confidence is low', async () => {
+  it('flags tagger_error and unknown client on schema-invalid output', async () => {
+    const badShape = JSON.stringify({
+      billing_client: { name: 'Orlando Health', slug: 'orlando-health' },
+      end_client: null,
+      project: { code: 'OH26MT', name: '2026 Martech Staffing' },
+      confidence: 'very-high', // not a valid enum value
+      topics_canonical: [],
+      topics_freeform: [],
+      summary: '',
+      action_items: [],
+    });
+    mockGenerateText.mockResolvedValue(resolve(badShape));
+    const r = await analyzeMeeting(INPUT, KNOWLEDGE);
+    expect(r.billing_client.slug).toBe('unknown');
+    expect(r.tagger_error).toBe(true);
+  });
+
+  it('clears client, end_client, and project when confidence is low', async () => {
     const low = JSON.stringify({
       billing_client: { name: 'Maybe', slug: 'maybe' },
-      end_client: null, project: null, confidence: 'low',
+      end_client: { name: 'Some End Client', slug: 'some-end-client' },
+      project: { code: 'XYZ', name: 'Some Project' },
+      confidence: 'low',
       topics_canonical: [], topics_freeform: [], summary: '', action_items: [],
     });
     mockGenerateText.mockResolvedValue(resolve(low));
     const r = await analyzeMeeting(INPUT, KNOWLEDGE);
     expect(r.billing_client.slug).toBe('unknown');
+    expect(r.end_client).toBeNull();
     expect(r.project).toBeNull();
   });
 
