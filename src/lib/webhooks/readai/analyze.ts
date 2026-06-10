@@ -80,7 +80,10 @@ export async function analyzeMeeting(
   input: MeetingInput,
   knowledge: TaggerKnowledge,
 ): Promise<MeetingAnalysis & { tagger_error?: boolean }> {
-  const gateway = createGateway({ apiKey: process.env.VERCEL_AI_GATEWAY_KEY! });
+  // No explicit apiKey: the gateway resolves AI_GATEWAY_API_KEY from the env,
+  // falling back to the Vercel OIDC token when deployed. (Hardcoding an unset
+  // var here silently broke auth and made every meeting tag as "unknown".)
+  const gateway = createGateway();
 
   try {
     const { text } = await generateText({
