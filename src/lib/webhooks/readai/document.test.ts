@@ -1,117 +1,92 @@
 import { describe, it, expect } from 'vitest';
 import { buildMeetingDocument } from './document';
-import type { ReadAiPayload, HaikuAnalysis } from './schema';
+import type { MeetingInput } from './input';
+import type { MeetingAnalysis } from './schema';
 
-const PAYLOAD: ReadAiPayload = {
-  request_id: 'req_abc123',
-  session_id: 'sess_xyz',
-  title: 'Quarterly Review',
-  summary: 'Original summary.',
-  start_time: '2026-06-07T14:00:00Z',
+const INPUT: MeetingInput = {
+  title: 'ALZ.org Pitch',
+  date: '2026-06-01T14:00:00Z',
   platform: 'zoom',
-  report_url: 'https://app.read.ai/sessions/sess_xyz',
-  participants: [
-    { name: 'Jane Smith', email: 'jane@acme.com' },
-    { name: 'John', email: undefined },
-  ],
-  topics: [{ text: 'Roadmap' }, { text: 'Budget' }],
-  action_items: [{ text: 'Send proposal' }],
-  key_questions: [],
-  chapter_summaries: [],
+  participants: [{ name: 'Jane', email: 'jane@laughlin-constable.com' }],
+  summary: 'Pitch prep.',
+  topics: ['pitch'],
+  actionItems: ['Finalize deck'],
+  chapters: [],
 };
 
-const ANALYSIS: HaikuAnalysis = {
-  client: 'Acme Corp',
-  client_slug: 'acme-corp',
+const ANALYSIS: MeetingAnalysis & { tagger_error?: boolean } = {
+  billing_client: { name: 'Laughlin Constable', slug: 'laughlin-constable' },
+  end_client: { name: 'ALZ.org', slug: 'alz-org' },
+  project: { code: 'LCALZ', name: 'ALZ RFP' },
   confidence: 'high',
-  tags: ['quarterly-review', 'budget'],
-  summary: 'We discussed Q2 roadmap and budget allocation.',
-  action_items: ['Send updated proposal to Jane'],
+  topics_canonical: ['proposal'],
+  topics_freeform: ['alz-org'],
+  summary: 'Pitch prep.',
+  action_items: ['Finalize deck'],
 };
 
 describe('buildMeetingDocument', () => {
-  it('generates correct document id from session_id', () => {
-    const { id } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(id).toBe('meetings/sess_xyz');
+  it('emits namespaced client/subclient/project/topic tags', () => {
+    const { frontmatter } = buildMeetingDocument(INPUT, ANALYSIS, 'req_1', 'sess_1', 'https://r');
+    expect(frontmatter.tags).toEqual(expect.arrayContaining([
+      '#meetings',
+      '#client_laughlin-constable',
+      '#subclient_alz-org',
+      '#project_lcalz',
+      '#topic_proposal',
+      '#alz-org',
+    ]));
+    expect(frontmatter.tags).not.toContain('#needs-review');
   });
 
-  it('sets title combining client and meeting title', () => {
-    const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(frontmatter.title).toBe('Acme Corp — Quarterly Review');
+  it('builds the meeting id from date + client + title slug', () => {
+    const { id } = buildMeetingDocument(INPUT, ANALYSIS, 'req_1', 'sess_1', 'https://r');
+    expect(id).toBe('nodes/meetings/2026-06-01-laughlin-constable-alz-org-pitch');
   });
 
-  it('sets type to document and status to published', () => {
-    const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(frontmatter.type).toBe('document');
-    expect(frontmatter.status).toBe('published');
+  it('writes structured metadata for code + name retrieval', () => {
+    const { frontmatter } = buildMeetingDocument(INPUT, ANALYSIS, 'req_1', 'sess_1', 'https://r');
+    const m = frontmatter.metadata as Record<string, unknown>;
+    expect(m.client).toBe('laughlin-constable');
+    expect(m.client_name).toBe('Laughlin Constable');
+    expect(m.subclient).toBe('alz-org');
+    expect(m.project_code).toBe('LCALZ');
+    expect(m.project).toBe('ALZ RFP');
+    expect(m.topics).toEqual(['proposal', 'alz-org']);
   });
 
-  it('puts meeting fields in metadata', () => {
-    const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    const m = frontmatter.metadata!;
-    expect(m.document_type).toBe('meeting');
-    expect(m.client).toBe('acme-corp');
-    expect(m.meeting_date).toBe('2026-06-07T14:00:00Z');
-    expect(m.platform).toBe('zoom');
-    expect(m.report_url).toBe('https://app.read.ai/sessions/sess_xyz');
-    expect(m.request_id).toBe('req_abc123');
-    expect(m.source).toBe('readai');
-    expect(m.haiku_confidence).toBe('high');
+  it('omits subclient/project keys when absent', () => {
+    const a: MeetingAnalysis = {
+      ...ANALYSIS, end_client: null, project: null, topics_freeform: [],
+    };
+    const { frontmatter } = buildMeetingDocument(INPUT, a, 'r', 's', 'u');
+    const m = frontmatter.metadata as Record<string, unknown>;
+    expect(m.subclient).toBeUndefined();
+    expect(m.subclient_name).toBeUndefined();
+    expect(m.project_code).toBeUndefined();
+    expect(m.project).toBeUndefined();
+    expect(m.topics).toEqual(['proposal']);
+    expect(frontmatter.tags).not.toContain('#subclient_alz-org');
   });
 
-  it('includes participant emails in metadata participants', () => {
-    const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    const participants = frontmatter.metadata!.participants;
-    expect(Array.isArray(participants)).toBe(true);
-    expect(participants as string[]).toContain('jane@acme.com');
-    expect(participants as string[]).toContain('John');
+  it('adds #needs-review on low confidence', () => {
+    const a = { ...ANALYSIS, confidence: 'low' as const };
+    const { frontmatter } = buildMeetingDocument(INPUT, a, 'r', 's', 'u');
+    expect(frontmatter.tags).toContain('#needs-review');
   });
 
-  it('includes haiku_error in metadata when present', () => {
-    const { frontmatter } = buildMeetingDocument(PAYLOAD, { ...ANALYSIS, haiku_error: true });
-    expect(frontmatter.metadata!.haiku_error).toBe(true);
+  it('adds #needs-review on tagger_error', () => {
+    const a = { ...ANALYSIS, tagger_error: true };
+    const { frontmatter } = buildMeetingDocument(INPUT, a, 'r', 's', 'u');
+    expect(frontmatter.tags).toContain('#needs-review');
   });
 
-  it('omits haiku_error from metadata when absent', () => {
-    const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect('haiku_error' in (frontmatter.metadata ?? {})).toBe(false);
-  });
-
-  it('body contains ## Summary with Haiku summary text', () => {
-    const { body } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(body).toContain('## Summary');
-    expect(body).toContain('We discussed Q2 roadmap and budget allocation.');
-  });
-
-  it('body contains ## Action Items from analysis', () => {
-    const { body } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(body).toContain('## Action Items');
-    expect(body).toContain('Send updated proposal to Jane');
-  });
-
-  it('body contains ## Topics from payload', () => {
-    const { body } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(body).toContain('## Topics');
-    expect(body).toContain('Roadmap');
-    expect(body).toContain('Budget');
-  });
-
-  it('body contains ## Participants', () => {
-    const { body } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(body).toContain('## Participants');
-    expect(body).toContain('jane@acme.com');
-  });
-
-  it('uses payload summary when Haiku summary is empty', () => {
-    const { body } = buildMeetingDocument(PAYLOAD, { ...ANALYSIS, summary: '' });
-    expect(body).toContain('Original summary.');
-  });
-
-  it('body contains ## Summary even when both summaries are empty', () => {
-    const { body } = buildMeetingDocument(
-      { ...PAYLOAD, summary: '' },
-      { ...ANALYSIS, summary: '' },
-    );
-    expect(body).toContain('## Summary');
+  it('sanitizes tag segments to the engine regex', () => {
+    const a: MeetingAnalysis = { ...ANALYSIS, topics_freeform: ['Sprint 38!'] };
+    const { frontmatter } = buildMeetingDocument(INPUT, a, 'r', 's', 'u');
+    for (const t of frontmatter.tags!) {
+      expect(t).toMatch(/^#[a-zA-Z][a-zA-Z0-9_-]*$/);
+    }
+    expect(frontmatter.tags).toContain('#sprint-38');
   });
 });
