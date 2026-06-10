@@ -50,14 +50,16 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
     expect(body.sha).toBe('existing-sha');
   });
 
-  it('does not throw on GitHub API failure (fire-and-forget)', async () => {
-    fetchMock.mockRejectedValue(new Error('network error'));
+  it('throws on a non-ok GitHub PUT response (surfaces failure to caller)', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // GET sha
+      .mockResolvedValueOnce({ ok: false, status: 403, text: async () => 'forbidden' }); // PUT
     await expect(provider.commitFile({
       path: 'nodes/doc.md',
       content: Buffer.from('x'),
       message: 'test',
       userToken: 'ghp_testtoken',
-    })).resolves.toBeUndefined();
+    })).rejects.toThrow(/GitHub sync failed.*403/);
   });
 });
 

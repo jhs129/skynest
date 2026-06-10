@@ -10,6 +10,7 @@ import { ReadAiPayloadSchema } from '@/lib/webhooks/readai/schema';
 import { isDuplicate } from '@/lib/webhooks/readai/dedup';
 import { analyzeMeeting } from '@/lib/webhooks/readai/analyze';
 import { buildMeetingDocument } from '@/lib/webhooks/readai/document';
+import { fromReadAiPayload } from '@/lib/webhooks/readai/input';
 
 export const maxDuration = 60;
 
@@ -17,6 +18,31 @@ const VAULT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 interface RouteContext {
   params: Promise<{ apikey: string; vaultId: string }>;
+}
+
+const KNOWLEDGE_PATHS = {
+  registry: 'nodes/clients/harvest-client-project-context',
+  topicVocab: 'nodes/processes/meeting-topic-vocabulary',
+  examples: 'nodes/processes/meeting-tagging-examples',
+} as const;
+
+async function loadKnowledge(storage: {
+  readDocument: (id: string) => Promise<{ rawContent: string } | null>;
+}): Promise<{ registry: string; topicVocab: string; examples: string }> {
+  const read = async (id: string) => {
+    try {
+      const doc = await storage.readDocument(id);
+      return doc?.rawContent ?? '';
+    } catch {
+      return '';
+    }
+  };
+  const [registry, topicVocab, examples] = await Promise.all([
+    read(KNOWLEDGE_PATHS.registry),
+    read(KNOWLEDGE_PATHS.topicVocab),
+    read(KNOWLEDGE_PATHS.examples),
+  ]);
+  return { registry, topicVocab, examples };
 }
 
 export async function POST(req: NextRequest, { params }: RouteContext) {
@@ -78,31 +104,37 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ ok: true, duplicate: true }, { status: 200 });
   }
 
-  // Read client registry (missing registry is non-fatal)
-  console.log(`[skynest] step: read registry`);
-  let registryText = '';
-  try {
-    const registryNode = await storage.readDocument('clients/registry');
-    if (registryNode) registryText = registryNode.rawContent;
-  } catch {
-    // proceed with empty registry
-  }
+  // Load tagging knowledge (all non-fatal if missing)
+  console.log(`[skynest] step: load knowledge`);
+  const knowledge = await loadKnowledge(storage);
 
-  // Haiku analysis (failure is non-fatal — document is always written)
+  // Tagger analysis (failure is non-fatal — document is always written)
   console.log(`[skynest] step: analyze meeting`);
+  const input = fromReadAiPayload(payload);
   let analysis;
   try {
-    analysis = await analyzeMeeting(payload, registryText);
+    analysis = await analyzeMeeting(input, knowledge);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[skynest] analyzeMeeting threw (non-fatal): ${msg}`);
-    analysis = { client: 'unknown', client_slug: 'unknown', confidence: 'low' as const, tags: [], summary: '', action_items: [], haiku_error: true };
+    analysis = {
+      billing_client: { name: 'unknown', slug: 'unknown' },
+      end_client: null, project: null, confidence: 'low' as const,
+      topics_canonical: [], topics_freeform: [], summary: '', action_items: [],
+      tagger_error: true,
+    };
   }
-  console.log(`[skynest] step: analyze ok haiku_error=${(analysis as { haiku_error?: boolean }).haiku_error ?? false}`);
+  console.log(`[skynest] step: analyze ok tagger_error=${(analysis as { tagger_error?: boolean }).tagger_error ?? false}`);
 
   // Build document
   console.log(`[skynest] step: build document`);
-  const { id, frontmatter, body } = buildMeetingDocument(payload, analysis);
+  const { id, frontmatter, body } = buildMeetingDocument(
+    input,
+    analysis,
+    payload.request_id,
+    payload.session_id,
+    payload.report_url,
+  );
   const node = {
     id,
     filePath: '',
