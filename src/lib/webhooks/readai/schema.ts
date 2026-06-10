@@ -53,13 +53,20 @@ export const ReadAiPayloadSchema = z.object({
 
 export type ReadAiPayload = z.infer<typeof ReadAiPayloadSchema>;
 
-export const HaikuAnalysisSchema = z.object({
-  client: z.string(),
-  client_slug: z.string(),
+const ClientRefSchema = z.object({
+  name: z.string(),
+  slug: z.string(),
+});
+
+export const MeetingAnalysisSchema = z.object({
+  billing_client: ClientRefSchema,
+  end_client: ClientRefSchema.nullable(),
+  project: z.object({ code: z.string(), name: z.string() }).nullable(),
   confidence: z.enum(['high', 'medium', 'low']),
-  tags: z.array(z.string()),
+  topics_canonical: z.array(z.string()),
+  topics_freeform: z.array(z.string()).max(2),
   summary: z.string(),
   action_items: z.array(z.string()),
 });
 
-export type HaikuAnalysis = z.infer<typeof HaikuAnalysisSchema>;
+export type MeetingAnalysis = z.infer<typeof MeetingAnalysisSchema>;
