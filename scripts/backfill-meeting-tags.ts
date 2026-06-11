@@ -88,6 +88,10 @@ async function main() {
         path: `${doc.id}.md`, content: Buffer.from(content, 'utf-8'),
         message: `retag: ${doc.id}`, userToken: botToken,
       });
+      // Pace commits so a 50+ file backfill doesn't trip GitHub's secondary
+      // (abuse) rate limit. commitFile retries on a throttle, but spacing the
+      // PUTs out keeps retries rare rather than the steady state.
+      await new Promise((r) => setTimeout(r, 750));
     }
   }
 

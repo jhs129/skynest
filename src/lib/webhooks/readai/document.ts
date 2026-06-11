@@ -17,19 +17,32 @@ function sanitizeSegment(raw: string): string {
   return /^[a-z]/.test(s) ? s : `x-${s}`;
 }
 
+/**
+ * Strip a redundant leading "<kind>-" the model sometimes bakes into the slug.
+ * Haiku occasionally returns billing_client.slug = "client-orlando-health", and
+ * `#${kind}_${slug}` would then double up as `#client_client-orlando-health`.
+ * Run AFTER sanitizeSegment (which has normalized separators to dashes).
+ */
+function stripKindPrefix(slug: string, kind: string): string {
+  const stripped = slug.replace(new RegExp(`^${kind}-`), '');
+  return stripped || slug;
+}
+
 function buildDateSlug(input: MeetingInput, analysis: MeetingAnalysis): { date: string; slug: string } {
   const date = input.date && input.date !== 'unknown' ? input.date.slice(0, 10) : 'unknown-date';
   const titleSlug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
   const clientPart =
-    analysis.billing_client.slug !== 'unknown' ? `${sanitizeSegment(analysis.billing_client.slug)}-` : '';
+    analysis.billing_client.slug !== 'unknown'
+      ? `${stripKindPrefix(sanitizeSegment(analysis.billing_client.slug), 'client')}-`
+      : '';
   const slug = `${clientPart}${titleSlug}`.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
   return { date, slug };
 }
 
 function buildTags(analysis: AnalysisWithFlags): string[] {
   const tags = new Set<string>(['#meetings']);
-  tags.add(`#client_${sanitizeSegment(analysis.billing_client.slug)}`);
-  if (analysis.end_client) tags.add(`#subclient_${sanitizeSegment(analysis.end_client.slug)}`);
+  tags.add(`#client_${stripKindPrefix(sanitizeSegment(analysis.billing_client.slug), 'client')}`);
+  if (analysis.end_client) tags.add(`#subclient_${stripKindPrefix(sanitizeSegment(analysis.end_client.slug), 'subclient')}`);
   if (analysis.project) tags.add(`#project_${sanitizeSegment(analysis.project.code)}`);
   for (const t of analysis.topics_canonical) tags.add(`#topic_${sanitizeSegment(t)}`);
   for (const t of analysis.topics_freeform) tags.add(`#${sanitizeSegment(t)}`);

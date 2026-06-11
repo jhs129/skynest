@@ -81,6 +81,20 @@ describe('buildMeetingDocument', () => {
     expect(frontmatter.tags).toContain('#needs-review');
   });
 
+  it('strips a redundant client-/subclient- prefix the model bakes into the slug', () => {
+    const a: MeetingAnalysis = {
+      ...ANALYSIS,
+      billing_client: { name: 'Orlando Health', slug: 'client-orlando-health' },
+      end_client: { name: 'ALZ.org', slug: 'subclient-alz-org' },
+      topics_freeform: [],
+    };
+    const { id, frontmatter } = buildMeetingDocument(INPUT, a, 'r', 's', 'u');
+    expect(frontmatter.tags).toContain('#client_orlando-health');
+    expect(frontmatter.tags).not.toContain('#client_client-orlando-health');
+    expect(frontmatter.tags).toContain('#subclient_alz-org');
+    expect(id).toBe('nodes/meetings/2026-06-01-orlando-health-alz-org-pitch');
+  });
+
   it('sanitizes tag segments to the engine regex', () => {
     const a: MeetingAnalysis = { ...ANALYSIS, topics_freeform: ['Sprint 38!'] };
     const { frontmatter } = buildMeetingDocument(INPUT, a, 'r', 's', 'u');

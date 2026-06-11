@@ -20,10 +20,34 @@ const UNKNOWN: MeetingAnalysis = {
   action_items: [],
 };
 
+// Pull every email domain we can see — from the structured participant list AND
+// from the meeting text itself. Read.ai docs often write attendees as
+// "Jane, Bob (all @orlandohealth.com)", so the domain lives in prose, not in a
+// parseable address. Domains are the strongest billing-client signal, so we
+// surface them explicitly rather than hoping the model spots them inline.
+function extractDomains(input: MeetingInput): string[] {
+  const DOMAIN_RE = /@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  const haystack = [
+    ...input.participants.map((p) => p.email),
+    input.summary,
+    input.topics.join('\n'),
+    input.actionItems.join('\n'),
+    ...input.chapters.map((c) => `${c.title}\n${c.description}`),
+  ].join('\n');
+  const found = new Set<string>();
+  for (const match of haystack.matchAll(DOMAIN_RE)) {
+    const domain = match[1].toLowerCase().replace(/[).,;:]+$/, '');
+    if (!domain.includes('read.ai')) found.add(domain);
+  }
+  return Array.from(found);
+}
+
 function buildPrompt(input: MeetingInput, knowledge: TaggerKnowledge): string {
   const participants = input.participants
     .map((p) => p.email || p.name || 'unknown')
     .join(', ');
+  const domains = extractDomains(input);
+  const domainLine = domains.length ? domains.join(', ') : '(none detected)';
   const topics = input.topics.map((t) => `- ${t}`).join('\n') || '(none)';
   const actionItems = input.actionItems.map((a) => `- ${a}`).join('\n') || '(none)';
   const chapters = input.chapters
@@ -32,10 +56,17 @@ function buildPrompt(input: MeetingInput, knowledge: TaggerKnowledge): string {
 
   return `You tag a meeting report by CLIENT, PROJECT, and TOPIC for a knowledge vault.
 
-## Client & Project Registry
-Match participant email domains and meeting content to the BILLING client and project.
+## How to pick the client
+The participant EMAIL DOMAINS are the strongest signal for the billing client.
+Match them against the registry's domain lookup FIRST, before weighing the meeting
+content. A single attendee on a known client domain (e.g. someone @centurycommunities.com
+or @orlandohealth.com) is enough to assign that client with high confidence — do NOT
+return "unknown" when a domain clearly matches the registry. Only fall back to the
+Client Identification Rules and meeting content when no attendee domain matches.
 When the end client differs from who is billed (e.g. ALZ.org under Laughlin Constable,
 Georgia Core under Radical Design, Aventiv under Goods & Services), report both.
+
+## Client & Project Registry
 ${knowledge.registry || '(no registry available)'}
 
 ## Canonical Topic Vocabulary
@@ -50,6 +81,7 @@ Title: ${input.title}
 Date: ${input.date}
 Platform: ${input.platform}
 Participants: ${participants || 'none'}
+Participant email domains (match these against the registry FIRST): ${domainLine}
 
 Summary:
 ${input.summary || '(none)'}
@@ -88,6 +120,10 @@ export async function analyzeMeeting(
   try {
     const { text } = await generateText({
       model: gateway('anthropic/claude-haiku-4-5'),
+      // temperature 0 makes the tag for a given meeting reproducible run-to-run.
+      // Without it, borderline meetings flip between a correct client and
+      // "unknown" across backfills, which makes the QA report unreviewable.
+      temperature: 0,
       prompt: buildPrompt(input, knowledge),
     });
 
