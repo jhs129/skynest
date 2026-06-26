@@ -125,3 +125,45 @@ describe('ReadAiPayloadSchema', () => {
   });
 
 });
+
+import { MeetingAnalysisSchema } from './schema';
+
+describe('MeetingAnalysisSchema', () => {
+  it('accepts a full analysis with sub-client and project', () => {
+    const parsed = MeetingAnalysisSchema.safeParse({
+      billing_client: { name: 'Laughlin Constable', slug: 'laughlin-constable' },
+      end_client: { name: 'ALZ.org', slug: 'alz-org' },
+      project: { code: 'LCALZ', name: 'ALZ RFP' },
+      confidence: 'high',
+      topics_canonical: ['proposal'],
+      topics_freeform: ['alz-org'],
+      summary: 'Pitch prep.',
+      action_items: ['Finalize deck'],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('accepts null end_client and null project', () => {
+    const parsed = MeetingAnalysisSchema.safeParse({
+      billing_client: { name: 'Orlando Health', slug: 'orlando-health' },
+      end_client: null,
+      project: null,
+      confidence: 'medium',
+      topics_canonical: ['scrum'],
+      topics_freeform: [],
+      summary: 'Standup.',
+      action_items: [],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects more than two free-form topics', () => {
+    const parsed = MeetingAnalysisSchema.safeParse({
+      billing_client: { name: 'X', slug: 'x' },
+      end_client: null, project: null, confidence: 'low',
+      topics_canonical: [], topics_freeform: ['a', 'b', 'c'],
+      summary: '', action_items: [],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});

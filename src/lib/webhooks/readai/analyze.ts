@@ -1,39 +1,90 @@
 import { createGateway } from '@ai-sdk/gateway';
 import { generateText } from 'ai';
-import { HaikuAnalysisSchema, type HaikuAnalysis, type ReadAiPayload } from './schema';
+import { MeetingAnalysisSchema, type MeetingAnalysis } from './schema';
+import type { MeetingInput } from './input';
 
-const DEFAULT_ANALYSIS: HaikuAnalysis = {
-  client: 'unknown',
-  client_slug: 'unknown',
+export interface TaggerKnowledge {
+  registry: string;
+  topicVocab: string;
+  examples: string;
+}
+
+const UNKNOWN: MeetingAnalysis = {
+  billing_client: { name: 'unknown', slug: 'unknown' },
+  end_client: null,
+  project: null,
   confidence: 'low',
-  tags: [],
+  topics_canonical: [],
+  topics_freeform: [],
   summary: '',
   action_items: [],
 };
 
-function buildPrompt(payload: ReadAiPayload, registryText: string): string {
-  const participants = payload.participants
+// Pull every email domain we can see — from the structured participant list AND
+// from the meeting text itself. Read.ai docs often write attendees as
+// "Jane, Bob (all @orlandohealth.com)", so the domain lives in prose, not in a
+// parseable address. Domains are the strongest billing-client signal, so we
+// surface them explicitly rather than hoping the model spots them inline.
+function extractDomains(input: MeetingInput): string[] {
+  const DOMAIN_RE = /@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  const haystack = [
+    ...input.participants.map((p) => p.email),
+    input.summary,
+    input.topics.join('\n'),
+    input.actionItems.join('\n'),
+    ...input.chapters.map((c) => `${c.title}\n${c.description}`),
+  ].join('\n');
+  const found = new Set<string>();
+  for (const match of haystack.matchAll(DOMAIN_RE)) {
+    const domain = match[1].toLowerCase().replace(/[).,;:]+$/, '');
+    if (!domain.includes('read.ai')) found.add(domain);
+  }
+  return Array.from(found);
+}
+
+function buildPrompt(input: MeetingInput, knowledge: TaggerKnowledge): string {
+  const participants = input.participants
     .map((p) => p.email || p.name || 'unknown')
     .join(', ');
-  const topics = payload.topics.map((t) => `- ${t.text}`).join('\n') || '(none)';
-  const actionItems = payload.action_items.map((a) => `- ${a.text}`).join('\n') || '(none)';
-  const chapters = payload.chapter_summaries
-    .map((c) => `### ${c.title || '(untitled)'}\n${c.description || ''}`)
+  const domains = extractDomains(input);
+  const domainLine = domains.length ? domains.join(', ') : '(none detected)';
+  const topics = input.topics.map((t) => `- ${t}`).join('\n') || '(none)';
+  const actionItems = input.actionItems.map((a) => `- ${a}`).join('\n') || '(none)';
+  const chapters = input.chapters
+    .map((c) => `### ${c.title || '(untitled)'}\n${c.description}`)
     .join('\n\n');
 
-  return `You are analyzing a meeting report to identify the client and summarize key information.
+  return `You tag a meeting report by CLIENT, PROJECT, and TOPIC for a knowledge vault.
 
-## Client Registry
-${registryText || '(No client registry available)'}
+## How to pick the client
+The participant EMAIL DOMAINS are the strongest signal for the billing client.
+Match them against the registry's domain lookup FIRST, before weighing the meeting
+content. A single attendee on a known client domain (e.g. someone @centurycommunities.com
+or @orlandohealth.com) is enough to assign that client with high confidence — do NOT
+return "unknown" when a domain clearly matches the registry. Only fall back to the
+Client Identification Rules and meeting content when no attendee domain matches.
+When the end client differs from who is billed (e.g. ALZ.org under Laughlin Constable,
+Georgia Core under Radical Design, Aventiv under Goods & Services), report both.
+
+## Client & Project Registry
+${knowledge.registry || '(no registry available)'}
+
+## Canonical Topic Vocabulary
+Map topics to these slugs FIRST. Add at most two free-form topics for specifics.
+${knowledge.topicVocab || '(no vocabulary available)'}
+
+## Tagging Examples & Corrections
+${knowledge.examples || '(none)'}
 
 ## Meeting Report
-Title: ${payload.title || '(untitled)'}
-Date: ${payload.start_time || 'unknown'}
-Platform: ${payload.platform || 'unknown'}
+Title: ${input.title}
+Date: ${input.date}
+Platform: ${input.platform}
 Participants: ${participants || 'none'}
+Participant email domains (match these against the registry FIRST): ${domainLine}
 
 Summary:
-${payload.summary || '(none)'}
+${input.summary || '(none)'}
 
 Topics:
 ${topics}
@@ -44,43 +95,50 @@ ${actionItems}
 Chapter Summaries:
 ${chapters || '(none)'}
 
-Based on the client registry, identify which client this meeting is for and extract key information.
-Return ONLY a JSON object with exactly this structure (no explanation, no markdown, just the JSON):
+Return ONLY a JSON object with exactly this structure (no markdown, no prose):
 {
-  "client": "Client Name from registry, or 'unknown' if not identified",
-  "client_slug": "kebab-case-slug, or 'unknown'",
+  "billing_client": { "name": "Client Name from registry, or 'unknown'", "slug": "kebab-slug-or-unknown" },
+  "end_client": { "name": "...", "slug": "..." } or null,
+  "project": { "code": "HARVEST_CODE", "name": "Readable Project Name" } or null,
   "confidence": "high" | "medium" | "low",
-  "tags": ["tag1", "tag2"],
-  "summary": "2-3 sentence summary of the meeting",
+  "topics_canonical": ["slug-from-vocabulary"],
+  "topics_freeform": ["specific-tag"],
+  "summary": "2-3 sentence summary",
   "action_items": ["action item 1"]
 }`;
 }
 
 export async function analyzeMeeting(
-  payload: ReadAiPayload,
-  registryText: string,
-): Promise<HaikuAnalysis & { haiku_error?: boolean }> {
-  const gateway = createGateway({ apiKey: process.env.VERCEL_AI_GATEWAY_KEY! });
+  input: MeetingInput,
+  knowledge: TaggerKnowledge,
+): Promise<MeetingAnalysis & { tagger_error?: boolean }> {
+  // No explicit apiKey: the gateway resolves AI_GATEWAY_API_KEY from the env,
+  // falling back to the Vercel OIDC token when deployed. (Hardcoding an unset
+  // var here silently broke auth and made every meeting tag as "unknown".)
+  const gateway = createGateway();
 
   try {
     const { text } = await generateText({
       model: gateway('anthropic/claude-haiku-4-5'),
-      prompt: buildPrompt(payload, registryText),
+      // temperature 0 makes the tag for a given meeting reproducible run-to-run.
+      // Without it, borderline meetings flip between a correct client and
+      // "unknown" across backfills, which makes the QA report unreviewable.
+      temperature: 0,
+      prompt: buildPrompt(input, knowledge),
     });
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return { ...DEFAULT_ANALYSIS, haiku_error: true };
+    if (!jsonMatch) return { ...UNKNOWN, tagger_error: true };
 
-    const parsed = HaikuAnalysisSchema.safeParse(JSON.parse(jsonMatch[0]));
-    if (!parsed.success) return { ...DEFAULT_ANALYSIS, haiku_error: true };
+    const parsed = MeetingAnalysisSchema.safeParse(JSON.parse(jsonMatch[0]));
+    if (!parsed.success) return { ...UNKNOWN, tagger_error: true };
 
     const result = parsed.data;
     if (result.confidence === 'low') {
-      return { ...result, client: 'unknown', client_slug: 'unknown' };
+      return { ...result, billing_client: { name: 'unknown', slug: 'unknown' }, end_client: null, project: null };
     }
-
     return result;
   } catch {
-    return { ...DEFAULT_ANALYSIS, haiku_error: true };
+    return { ...UNKNOWN, tagger_error: true };
   }
 }

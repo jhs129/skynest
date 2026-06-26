@@ -59,7 +59,7 @@ describe('BlobStorageProvider', () => {
     });
     const result = await provider.read('nodes/doc.md');
     expect(result?.toString()).toBe('hello');
-    expect(mockGet).toHaveBeenCalledWith('vault/default/nodes/doc.md', { access: 'private' });
+    expect(mockGet).toHaveBeenCalledWith('vault/default/nodes/doc.md', { access: 'private', useCache: false });
   });
 
   it('write calls put with correct key, access, and allowOverwrite', async () => {

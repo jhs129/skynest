@@ -2,6 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createHmac } from 'crypto';
 
+// `after` from next/server throws outside a request scope under Vitest.
+// Stub it to invoke the callback immediately so the route's success path is testable.
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>();
+  return {
+    ...actual,
+    after: (cb: () => unknown) => {
+      // Mirror real after(): run post-response, swallow throws (no floating rejection).
+      Promise.resolve(cb()).catch(() => {});
+    },
+  };
+});
+
 vi.mock('@/lib/vault/index', () => ({
   createEngine: vi.fn(),
 }));
@@ -20,6 +33,19 @@ vi.mock('@/lib/webhooks/readai/analyze', () => ({
 
 vi.mock('@/lib/webhooks/readai/document', () => ({
   buildMeetingDocument: vi.fn(),
+}));
+
+vi.mock('@/lib/webhooks/readai/input', () => ({
+  fromReadAiPayload: vi.fn().mockReturnValue({
+    title: 'Quarterly Review',
+    date: '2026-06-07T14:00:00Z',
+    platform: 'zoom',
+    participants: [],
+    summary: 'Meeting summary.',
+    topics: [],
+    actionItems: [],
+    chapters: [],
+  }),
 }));
 
 vi.mock('@promptowl/contextnest-engine', () => ({
@@ -98,10 +124,12 @@ describe('POST /api/webhooks/[apikey]/[vaultId]/readai', () => {
     vi.mocked(verifyReadAiSignature).mockReturnValue(true);
     vi.mocked(isDuplicate).mockResolvedValue(false);
     vi.mocked(analyzeMeeting).mockResolvedValue({
-      client: 'Acme Corp',
-      client_slug: 'acme-corp',
+      billing_client: { name: 'Acme Corp', slug: 'acme-corp' },
+      end_client: null,
+      project: null,
       confidence: 'high',
-      tags: [],
+      topics_canonical: [],
+      topics_freeform: [],
       summary: 'Summary.',
       action_items: [],
     });
@@ -159,12 +187,18 @@ describe('POST /api/webhooks/[apikey]/[vaultId]/readai', () => {
     expect(res.status).toBe(500);
   });
 
-  it('proceeds with empty registry when clients/registry is missing', async () => {
+  it('proceeds with empty knowledge when knowledge docs are missing', async () => {
     mockStorage.readDocument.mockResolvedValue(null);
     const req = makeRequest(VALID_PAYLOAD);
     const res = await POST(req, { params: Promise.resolve({ apikey: API_KEY, vaultId: VAULT_ID }) });
     expect(res.status).toBe(200);
-    expect(analyzeMeeting).toHaveBeenCalledWith(expect.anything(), '');
+    expect(analyzeMeeting).toHaveBeenCalledWith(
+      expect.anything(),
+      { registry: '', topicVocab: '', examples: '' },
+    );
+    expect(mockStorage.readDocument).toHaveBeenCalledWith('nodes/clients/harvest-client-project-context');
+    expect(mockStorage.readDocument).toHaveBeenCalledWith('nodes/processes/meeting-topic-vocabulary');
+    expect(mockStorage.readDocument).toHaveBeenCalledWith('nodes/processes/meeting-tagging-examples');
   });
 
   it('fires git sync as fire-and-forget (does not block response)', async () => {
