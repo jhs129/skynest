@@ -52,7 +52,7 @@ export class AzureBlobStorageProvider implements StorageProvider {
   async write(path: string, data: Buffer): Promise<void> {
     await this.containerClient
       .getBlockBlobClient(this.blobName(path))
-      .upload(data, data.length, { overwrite: true });
+      .upload(data, data.length);
   }
 
   async delete(path: string): Promise<void> {

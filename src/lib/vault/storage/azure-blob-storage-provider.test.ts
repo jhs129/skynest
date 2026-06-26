@@ -72,7 +72,7 @@ describe('AzureBlobStorageProvider', () => {
     const data = Buffer.from('hello');
     await provider.write('nodes/doc.md', data);
     expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('default/nodes/doc.md');
-    expect(mockUpload).toHaveBeenCalledWith(data, 5, { overwrite: true });
+    expect(mockUpload).toHaveBeenCalledWith(data, 5);
   });
 
   it('delete calls deleteIfExists with correct blob name', async () => {
