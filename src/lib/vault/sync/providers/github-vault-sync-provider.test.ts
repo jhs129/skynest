@@ -50,14 +50,14 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
     expect(body.sha).toBe('existing-sha');
   });
 
-  it('does not throw on GitHub API failure (fire-and-forget)', async () => {
+  it('throws on network error (caller is responsible for error handling)', async () => {
     fetchMock.mockRejectedValue(new Error('network error'));
     await expect(provider.commitFile({
       path: 'nodes/doc.md',
       content: Buffer.from('x'),
       message: 'test',
       userToken: 'ghp_testtoken',
-    })).resolves.toBeUndefined();
+    })).rejects.toThrow('network error');
   });
 });
 

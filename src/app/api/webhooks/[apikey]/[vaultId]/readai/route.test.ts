@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createHmac } from 'crypto';
 
+// `after()` requires a real Next.js request context — mock it as a no-op in tests
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>();
+  return { ...actual, after: vi.fn() };
+});
+
 vi.mock('@/lib/vault/index', () => ({
   createEngine: vi.fn(),
 }));

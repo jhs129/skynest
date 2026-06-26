@@ -30,14 +30,14 @@ const ANALYSIS: HaikuAnalysis = {
 };
 
 describe('buildMeetingDocument', () => {
-  it('generates correct document id from session_id', () => {
+  it('generates a date-slug id from start_time and client', () => {
     const { id } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(id).toBe('meetings/sess_xyz');
+    expect(id).toBe('nodes/meetings/2026-06-07-acme-corp-quarterly-review');
   });
 
-  it('sets title combining client and meeting title', () => {
+  it('sets title combining client, meeting title, and date', () => {
     const { frontmatter } = buildMeetingDocument(PAYLOAD, ANALYSIS);
-    expect(frontmatter.title).toBe('Acme Corp — Quarterly Review');
+    expect(frontmatter.title).toBe('Acme Corp — Quarterly Review — 2026-06-07');
   });
 
   it('sets type to document and status to published', () => {
