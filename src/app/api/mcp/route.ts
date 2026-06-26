@@ -15,7 +15,14 @@ const authHandler = withMcpAuth(
   async (req: Request, bearerToken?: string) => {
     if (!bearerToken) return undefined;
     const url = new URL(req.url);
-    const resourceUrl = `${url.origin}/api/mcp`;
+    // Respect x-forwarded-proto / x-forwarded-host set by TLS-terminating proxies
+    // (Azure Container Apps, Vercel, etc.) so the computed audience matches the public URL.
+    const proto =
+      req.headers.get('x-forwarded-proto')?.split(',')[0].trim() ??
+      url.protocol.replace(':', '');
+    const host =
+      req.headers.get('x-forwarded-host')?.split(',')[0].trim() ?? url.host;
+    const resourceUrl = `${proto}://${host}/api/mcp`;
     return verifyMcpToken(bearerToken, resourceUrl);
   },
   { required: true },

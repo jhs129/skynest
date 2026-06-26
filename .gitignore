@@ -1,3 +1,6 @@
+# Local dev scripts
+mint-test-token.mjs
+
 # Local env files
 .env.local
 .env.*.local
