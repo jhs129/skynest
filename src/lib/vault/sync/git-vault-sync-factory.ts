@@ -8,7 +8,11 @@ function envForVault(key: string, vaultId: string): string | undefined {
 }
 
 export function createGitVaultSyncProvider(vaultId: string = 'default'): GitVaultSyncProvider {
-  const providerName = envForVault('VAULT_SYNC_PROVIDER', vaultId) ?? 'github';
+  // Default to 'github' only when VAULT_REPO is configured; otherwise default to 'none'.
+  // This allows Azure Container Apps deployments (no GitHub OAuth) to work without
+  // explicitly setting VAULT_SYNC_PROVIDER=none.
+  const hasRepo = !!envForVault('VAULT_REPO', vaultId);
+  const providerName = envForVault('VAULT_SYNC_PROVIDER', vaultId) ?? (hasRepo ? 'github' : 'none');
 
   if (providerName === 'none') {
     return new NoopVaultSyncProvider();
