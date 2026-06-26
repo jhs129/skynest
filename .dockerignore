@@ -1,0 +1,6 @@
+.git
+.next
+node_modules
+vendor/packages/engine/node_modules
+.env*
+*.local
