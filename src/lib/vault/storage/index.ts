@@ -1,4 +1,5 @@
 import { BlobStorageProvider } from './blob-storage-provider.js';
+import { AzureBlobStorageProvider } from './azure-blob-storage-provider.js';
 import { FsStorageProvider } from '@promptowl/contextnest-engine';
 import type { StorageProvider } from '@promptowl/contextnest-engine';
 
@@ -19,6 +20,13 @@ export function createStorageProvider(vaultId?: string): StorageProvider {
     const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
     validateVaultId(resolvedVaultId);
     return new BlobStorageProvider({ prefix, vaultId: resolvedVaultId });
+  }
+
+  if (backend === 'azure-blob') {
+    const containerName = process.env.AZURE_BLOB_CONTAINER ?? 'skynest';
+    const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
+    validateVaultId(resolvedVaultId);
+    return new AzureBlobStorageProvider({ containerName, vaultId: resolvedVaultId });
   }
 
   if (backend === 'fs') {
