@@ -21,7 +21,13 @@ export class BlobStorageProvider implements StorageProvider {
   }
 
   async read(path: string): Promise<Buffer | null> {
-    const result = await get(this.key(path), { access: 'private' });
+    // useCache: false fetches from origin instead of the CDN cache. Blobs are
+    // written with a one-month default cache-control, so a cached read after an
+    // overwrite returns stale bytes within the same request. publishDocument does
+    // read -> bump version -> write in one process; a stale read there silently
+    // clobbers the just-written body with the old one (new version, old body).
+    // Origin reads keep read-after-write consistent for these write paths.
+    const result = await get(this.key(path), { access: 'private', useCache: false });
     if (!result || !result.stream) return null;
     return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
