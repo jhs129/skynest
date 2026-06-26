@@ -9,30 +9,47 @@ vi.mock('@vercel/blob', () => ({ put: vi.fn(), del: vi.fn(), list: vi.fn(), head
 
 import { createStorageProvider } from './index.js';
 import { AzureBlobStorageProvider } from './azure-blob-storage-provider.js';
+import { BlobStorageProvider } from './blob-storage-provider.js';
 
 describe('createStorageProvider', () => {
   afterEach(() => {
     delete process.env.CONTEXTNEST_STORAGE;
+    delete process.env.CONTEXTNEST_STORAGE_PROVIDER;
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     delete process.env.AZURE_BLOB_CONTAINER;
     delete process.env.CONTEXTNEST_BLOB_PREFIX;
   });
 
-  it('returns AzureBlobStorageProvider when CONTEXTNEST_STORAGE=azure-blob', () => {
-    process.env.CONTEXTNEST_STORAGE = 'azure-blob';
-    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://stoc360dev.blob.core.windows.net';
+  it('defaults to vercel provider when CONTEXTNEST_STORAGE=blob and CONTEXTNEST_STORAGE_PROVIDER is unset', () => {
+    process.env.CONTEXTNEST_STORAGE = 'blob';
+    process.env.CONTEXTNEST_BLOB_PREFIX = 'test-prefix';
+    const provider = createStorageProvider('my-vault');
+    expect(provider).toBeInstanceOf(BlobStorageProvider);
+  });
+
+  it('returns AzureBlobStorageProvider when CONTEXTNEST_STORAGE=blob and CONTEXTNEST_STORAGE_PROVIDER=azure', () => {
+    process.env.CONTEXTNEST_STORAGE = 'blob';
+    process.env.CONTEXTNEST_STORAGE_PROVIDER = 'azure';
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://sttestskynest.blob.core.windows.net';
     const provider = createStorageProvider('resident-123');
     expect(provider).toBeInstanceOf(AzureBlobStorageProvider);
   });
 
   it('uses default container name "skynest" when AZURE_BLOB_CONTAINER is not set', () => {
-    process.env.CONTEXTNEST_STORAGE = 'azure-blob';
-    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://stoc360dev.blob.core.windows.net';
+    process.env.CONTEXTNEST_STORAGE = 'blob';
+    process.env.CONTEXTNEST_STORAGE_PROVIDER = 'azure';
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://sttestskynest.blob.core.windows.net';
     expect(() => createStorageProvider('my-vault')).not.toThrow();
   });
 
-  it('throws for unknown backend value', () => {
-    process.env.CONTEXTNEST_STORAGE = 's3';
-    expect(() => createStorageProvider()).toThrow('Unknown CONTEXTNEST_STORAGE');
+  it('throws for unknown CONTEXTNEST_STORAGE_PROVIDER', () => {
+    process.env.CONTEXTNEST_STORAGE = 'blob';
+    process.env.CONTEXTNEST_STORAGE_PROVIDER = 's3';
+    expect(() => createStorageProvider()).toThrow('Unknown CONTEXTNEST_STORAGE_PROVIDER value: "s3"');
+  });
+
+  it('throws for unknown CONTEXTNEST_STORAGE value', () => {
+    process.env.CONTEXTNEST_STORAGE = 'database';
+    expect(() => createStorageProvider()).toThrow('Unknown CONTEXTNEST_STORAGE value: "database"');
   });
 });

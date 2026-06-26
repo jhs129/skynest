@@ -12,28 +12,34 @@ export function validateVaultId(id: string): void {
 }
 
 export function createStorageProvider(vaultId?: string): StorageProvider {
-  const backend = process.env.CONTEXTNEST_STORAGE ?? 'blob';
+  const storage = process.env.CONTEXTNEST_STORAGE ?? 'blob';
 
-  if (backend === 'blob') {
-    const prefix = process.env.CONTEXTNEST_BLOB_PREFIX;
-    if (!prefix) throw new Error('CONTEXTNEST_BLOB_PREFIX env var is required when CONTEXTNEST_STORAGE=blob');
-    const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
-    validateVaultId(resolvedVaultId);
-    return new BlobStorageProvider({ prefix, vaultId: resolvedVaultId });
+  if (storage === 'blob') {
+    const storageProvider = process.env.CONTEXTNEST_STORAGE_PROVIDER ?? 'vercel';
+
+    if (storageProvider === 'vercel') {
+      const prefix = process.env.CONTEXTNEST_BLOB_PREFIX;
+      if (!prefix) throw new Error('CONTEXTNEST_BLOB_PREFIX env var is required when CONTEXTNEST_STORAGE_PROVIDER=vercel');
+      const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
+      validateVaultId(resolvedVaultId);
+      return new BlobStorageProvider({ prefix, vaultId: resolvedVaultId });
+    }
+
+    if (storageProvider === 'azure') {
+      const containerName = process.env.AZURE_BLOB_CONTAINER ?? 'skynest';
+      const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
+      validateVaultId(resolvedVaultId);
+      return new AzureBlobStorageProvider({ containerName, vaultId: resolvedVaultId });
+    }
+
+    throw new Error(`Unknown CONTEXTNEST_STORAGE_PROVIDER value: "${storageProvider}"`);
   }
 
-  if (backend === 'azure-blob') {
-    const containerName = process.env.AZURE_BLOB_CONTAINER ?? 'skynest';
-    const resolvedVaultId = vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
-    validateVaultId(resolvedVaultId);
-    return new AzureBlobStorageProvider({ containerName, vaultId: resolvedVaultId });
-  }
-
-  if (backend === 'fs') {
+  if (storage === 'fs') {
     const vaultPath = process.env.CONTEXTNEST_VAULT_PATH;
     if (!vaultPath) throw new Error('CONTEXTNEST_VAULT_PATH env var is required when CONTEXTNEST_STORAGE=fs');
     return new FsStorageProvider(vaultPath);
   }
 
-  throw new Error(`Unknown CONTEXTNEST_STORAGE value: "${backend}"`);
+  throw new Error(`Unknown CONTEXTNEST_STORAGE value: "${storage}"`);
 }
