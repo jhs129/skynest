@@ -518,6 +518,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(content, 'utf-8'),
         message: `create ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -587,6 +588,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(content, 'utf-8'),
         message: `update ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -618,6 +620,7 @@ export function registerTools(server: McpServer): void {
       await sync.deleteFile({
         path: `${id}.md`,
         message: `delete ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -660,6 +663,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(serializeDocument(buf), 'utf-8'),
         message: `publish ${id} v${result.node.frontmatter.version}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -797,6 +801,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(serializeDocument(updated), 'utf-8'),
         message: `approve suggestion ${suggestion_id} on ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 

@@ -4,8 +4,8 @@ vi.mock('./storage/index.js', () => ({
   createStorageProvider: vi.fn(() => ({ read: vi.fn(), write: vi.fn(), delete: vi.fn(), deleteDir: vi.fn(), rename: vi.fn(), list: vi.fn(), exists: vi.fn() })),
 }));
 
-vi.mock('./sync/git-vault-sync-factory.js', () => ({
-  createGitVaultSyncProvider: vi.fn(() => ({ commitFile: vi.fn(), deleteFile: vi.fn() })),
+vi.mock('./sync/vault-sync-factory.js', () => ({
+  createVaultSyncProvider: vi.fn(() => ({ commitFile: vi.fn(), deleteFile: vi.fn() })),
 }));
 
 vi.mock('@promptowl/contextnest-engine', () => ({

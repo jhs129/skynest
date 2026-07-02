@@ -3,8 +3,8 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getPublicKey } from '@/lib/oauth/keys';
 
 export interface McpExtra {
-  userToken: string; // GitHub OAuth access token
-  userLogin: string; // GitHub username
+  userToken: string; // IdP access token (repo-scoped, when the IdP is GitHub); empty under IdPs with no write-capable token
+  userLogin: string; // IdP username/login used for attribution
   vaultId: string;   // selected vault, derived from MCP server URL path
 }
 

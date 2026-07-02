@@ -1,11 +1,11 @@
 import { NestStorage } from '@promptowl/contextnest-engine';
 import { createStorageProvider } from './storage/index.js';
-import { createGitVaultSyncProvider } from './sync/git-vault-sync-factory.js';
-import type { GitVaultSyncProvider } from './sync/git-vault-sync-provider.js';
+import { createVaultSyncProvider } from './sync/vault-sync-factory.js';
+import type { VaultSyncProvider } from './sync/vault-sync-provider.js';
 
 export interface VaultEngine {
   storage: NestStorage;
-  sync: GitVaultSyncProvider;
+  sync: VaultSyncProvider;
   userToken: string;
 }
 
@@ -17,6 +17,6 @@ export interface VaultEngine {
 export function createEngine(userToken: string, vaultId?: string): VaultEngine {
   const provider = createStorageProvider(vaultId);
   const storage = new NestStorage(provider);
-  const sync = createGitVaultSyncProvider(vaultId);
+  const sync = createVaultSyncProvider(vaultId);
   return { storage, sync, userToken };
 }

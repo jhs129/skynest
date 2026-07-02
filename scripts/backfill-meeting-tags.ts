@@ -86,7 +86,7 @@ async function main() {
       await publishDocument(storage, doc.id, { editedBy: 'skynest-bot', note: 'Re-tag: client/project/topic backfill' });
       await sync.commitFile({
         path: `${doc.id}.md`, content: Buffer.from(content, 'utf-8'),
-        message: `retag: ${doc.id}`, userToken: botToken,
+        message: `retag: ${doc.id}`, editedBy: 'skynest-bot', userToken: botToken,
       });
       // Pace commits so a 50+ file backfill doesn't trip GitHub's secondary
       // (abuse) rate limit. commitFile retries on a throttle, but spacing the

@@ -48,7 +48,7 @@ async function main() {
     });
     await sync.commitFile({
       path: `${id}.md`, content: Buffer.from(content, 'utf-8'),
-      message: `docs: encode tagger QA feedback into ${id}`, userToken: botToken,
+      message: `docs: encode tagger QA feedback into ${id}`, editedBy: 'skynest-bot', userToken: botToken,
     });
     console.log(`  wrote ${id} (${body.length} bytes)`);
   }

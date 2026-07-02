@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
     issuer: baseUrl.origin,
     audience,
     extra: {
-      userToken: claims.githubAccessToken,
-      userLogin: claims.githubLogin,
+      userToken: claims.idpAccessToken,
+      userLogin: claims.idpLogin,
     },
   });
 

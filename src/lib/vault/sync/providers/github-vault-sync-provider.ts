@@ -1,4 +1,4 @@
-import type { GitVaultSyncProvider } from '../git-vault-sync-provider.js';
+import type { VaultSyncProvider } from '../vault-sync-provider.js';
 
 interface Config {
   repo: string;   // "owner/repo"
@@ -15,7 +15,7 @@ interface Config {
 // fresh and retrying clears all of these.
 const RETRYABLE_STATUSES = new Set([403, 409, 422, 429, 500, 502, 503, 504]);
 
-export class GitHubVaultSyncProvider implements GitVaultSyncProvider {
+export class GitHubVaultSyncProvider implements VaultSyncProvider {
   private shaCache = new Map<string, string>();
 
   constructor(private readonly config: Config) {}
@@ -52,7 +52,11 @@ export class GitHubVaultSyncProvider implements GitVaultSyncProvider {
     }
   }
 
-  async commitFile(params: { path: string; content: Buffer; message: string; userToken: string }): Promise<void> {
+  async commitFile(params: { path: string; content: Buffer; message: string; editedBy: string; userToken?: string }): Promise<void> {
+    if (!params.userToken) {
+      throw new Error('GitHub sync failed: userToken is required (no GitHub-authenticated session available)');
+    }
+    const userToken = params.userToken;
     const maxRetries = this.config.maxRetries ?? 4;
     const baseMs = this.config.retryBaseMs ?? 500;
     let lastStatus = 0;
@@ -62,7 +66,7 @@ export class GitHubVaultSyncProvider implements GitVaultSyncProvider {
       // After a failed attempt, bypass the SHA cache: a stale or missing SHA is
       // the usual cause of 409/422, and a throttled first GET can leave the cache
       // empty. Re-fetching gets the file's current SHA before we retry the PUT.
-      const sha = await this.fetchSha(params.path, params.userToken, attempt > 0);
+      const sha = await this.fetchSha(params.path, userToken, attempt > 0);
       const body: Record<string, unknown> = {
         message: params.message,
         content: params.content.toString('base64'),
@@ -72,7 +76,7 @@ export class GitHubVaultSyncProvider implements GitVaultSyncProvider {
 
       const res = await fetch(this.apiUrl(params.path), {
         method: 'PUT',
-        headers: this.headers(params.userToken),
+        headers: this.headers(userToken),
         body: JSON.stringify(body),
       });
 
@@ -97,13 +101,17 @@ export class GitHubVaultSyncProvider implements GitVaultSyncProvider {
     throw new Error(`GitHub sync failed: PUT ${params.path} → HTTP ${lastStatus}: ${lastDetail.slice(0, 300)}`);
   }
 
-  async deleteFile(params: { path: string; message: string; userToken: string }): Promise<void> {
-    const sha = await this.fetchSha(params.path, params.userToken);
+  async deleteFile(params: { path: string; message: string; editedBy: string; userToken?: string }): Promise<void> {
+    if (!params.userToken) {
+      throw new Error('GitHub sync failed: userToken is required (no GitHub-authenticated session available)');
+    }
+    const userToken = params.userToken;
+    const sha = await this.fetchSha(params.path, userToken);
     if (!sha) return; // file doesn't exist in git — nothing to delete
 
     const res = await fetch(this.apiUrl(params.path), {
       method: 'DELETE',
-      headers: this.headers(params.userToken),
+      headers: this.headers(userToken),
       body: JSON.stringify({
         message: params.message,
         sha,

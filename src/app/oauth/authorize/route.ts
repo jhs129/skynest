@@ -45,10 +45,10 @@ export async function GET(req: NextRequest) {
     clientId: params.clientId,
     redirectUri: params.redirectUri,
     codeChallenge: params.codeChallenge,
-    githubAccessToken:
-      (session as { githubAccessToken?: string }).githubAccessToken ?? '',
-    githubLogin:
-      (session as { githubLogin?: string }).githubLogin ?? session.user.name ?? '',
+    idpAccessToken:
+      (session as { idpAccessToken?: string }).idpAccessToken ?? '',
+    idpLogin:
+      (session as { idpLogin?: string }).idpLogin ?? session.user.name ?? '',
   });
 
   const redirect = new URL(params.redirectUri);
