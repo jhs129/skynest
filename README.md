@@ -154,6 +154,19 @@ VAULT_REPO=<github-username-or-org>/contextnest-vault
 VAULT_BRANCH=main                  # optional, defaults to main
 VAULT_SYNC_PROVIDER=github         # 'github' (default) or 'none' to disable
 
+# Authorization — which identity mode gates mcp:read / mcp:write scope
+AUTH_PROVIDER=github               # 'github' (default) or 'entra'
+
+# Required when AUTH_PROVIDER=github (usually the same repo as VAULT_REPO)
+AUTHZ_GITHUB_REPO=<github-username-or-org>/contextnest-vault
+
+# Required when AUTH_PROVIDER=entra — sign-in via Microsoft Entra ID
+ENTRA_TENANT_ID=<entra-tenant-id>
+ENTRA_CLIENT_ID=<entra-app-client-id>
+ENTRA_CLIENT_SECRET=<entra-app-client-secret>
+AUTHZ_ENTRA_WRITE_GROUP_ID=<entra-security-group-id>   # members get mcp:read + mcp:write
+AUTHZ_ENTRA_READ_GROUP_ID=<entra-security-group-id>    # members get mcp:read only
+
 # read.ai webhook (optional — only needed if using the webhook integration)
 WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path
 READ_AI_SIGNING_KEY=<hmac-key>     # from the read.ai dashboard
