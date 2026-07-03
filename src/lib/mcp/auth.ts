@@ -5,7 +5,7 @@ import { getPublicKey } from '@/lib/oauth/keys';
 export interface McpExtra {
   userToken: string; // IdP access token (repo-scoped, when the IdP is GitHub); empty under IdPs with no write-capable token
   userLogin: string; // IdP username/login used for attribution
-  vaultId: string;   // selected vault, derived from MCP server URL path
+  vaultId?: string;  // selected vault, derived from MCP server URL path; unset means "use CONTEXTNEST_DEFAULT_VAULT_ID"
 }
 
 // Escape hatch for testing non-auth-dependent functionality while an Entra admin
@@ -25,7 +25,6 @@ function devBypassAuthInfo(): AuthInfo {
     extra: {
       userToken: '',
       userLogin: process.env.MCP_AUTH_DISABLED_USER ?? 'auth-disabled@skynest',
-      vaultId: '',
     },
   };
 }
