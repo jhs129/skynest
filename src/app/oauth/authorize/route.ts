@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
   }
 
   if (!client || !client.redirectUris.includes(params.redirectUri)) {
-    return NextResponse.json({ error: 'invalid_client' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'invalid_client', debugClient: client ?? null, debugRedirectUri: params.redirectUri },
+      { status: 400 },
+    );
   }
 
   // KAN-32 workaround: skip the real Entra sign-in (blocked on admin consent)
