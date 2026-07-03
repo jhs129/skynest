@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { signAuthCode } from '@/lib/oauth/jwt';
 import { getClient, registerClient } from '@/lib/oauth/clients';
-import { parseAuthorizeParams } from '@/lib/oauth/authorize';
+import { parseAuthorizeParams, redirectUriIsRegistered } from '@/lib/oauth/authorize';
 import { resolveServerUrls } from '@/lib/oauth/urls';
 import { isMcpAuthDisabled } from '@/lib/mcp/auth';
 
@@ -29,11 +29,8 @@ export async function GET(req: NextRequest) {
     client = { name: 'MCP Client', redirectUris: [params.redirectUri] };
   }
 
-  if (!client || !client.redirectUris.includes(params.redirectUri)) {
-    return NextResponse.json(
-      { error: 'invalid_client', debugClient: client ?? null, debugRedirectUri: params.redirectUri },
-      { status: 400 },
-    );
+  if (!client || !redirectUriIsRegistered(client.redirectUris, params.redirectUri)) {
+    return NextResponse.json({ error: 'invalid_client' }, { status: 400 });
   }
 
   // KAN-32 workaround: skip the real Entra sign-in (blocked on admin consent)

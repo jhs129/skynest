@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthCode, signAccessToken } from '@/lib/oauth/jwt';
 import { verifyPkce } from '@/lib/oauth/pkce';
+import { normalizeLoopbackRedirectUri } from '@/lib/oauth/authorize';
 import { resolveServerUrls } from '@/lib/oauth/urls';
 import { ACCESS_TOKEN_TTL_SECONDS } from '@/lib/oauth/config';
 import { createAuthorizationProvider } from '@/lib/authorization/authorization-factory';
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 400 });
   }
 
-  if (claims.redirectUri !== redirectUri) {
+  if (normalizeLoopbackRedirectUri(claims.redirectUri) !== normalizeLoopbackRedirectUri(redirectUri)) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 400 });
   }
 

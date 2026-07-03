@@ -60,9 +60,25 @@ export function parseAuthorizeParams(searchParams: URLSearchParams): AuthorizeVa
   };
 }
 
-/** Strict-equal match against a list of registered redirect URIs. */
+// RFC 8252 §7.3 — the loopback interface may be presented as "localhost" or
+// "127.0.0.1" depending on OS/network layers between client and server, so
+// authorization servers should treat them as equivalent for matching purposes.
+export function normalizeLoopbackRedirectUri(uri: string): string {
+  try {
+    const u = new URL(uri);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      u.hostname = '127.0.0.1';
+    }
+    return u.href;
+  } catch {
+    return uri;
+  }
+}
+
+/** Match against a list of registered redirect URIs, tolerant of localhost/127.0.0.1 variance. */
 export function redirectUriIsRegistered(registeredUris: string[], redirectUri: string): boolean {
-  return registeredUris.includes(redirectUri);
+  const target = normalizeLoopbackRedirectUri(redirectUri);
+  return registeredUris.some((uri) => normalizeLoopbackRedirectUri(uri) === target);
 }
 
 /** Appends `code` (or `error`) + `state` as query params on the redirect_uri. */
