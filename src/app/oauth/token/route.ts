@@ -3,6 +3,7 @@ import { verifyAuthCode, signAccessToken } from '@/lib/oauth/jwt';
 import { verifyPkce } from '@/lib/oauth/pkce';
 import { resolveServerUrls } from '@/lib/oauth/urls';
 import { ACCESS_TOKEN_TTL_SECONDS } from '@/lib/oauth/config';
+import { createAuthorizationProvider } from '@/lib/authorization/authorization-factory';
 
 export async function POST(req: NextRequest) {
   const body = await req.formData();
@@ -40,13 +41,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 400 });
   }
 
+  let scope: string;
+  try {
+    const authorizationProvider = createAuthorizationProvider();
+    const access = await authorizationProvider.checkAccess({
+      idpAccessToken: claims.idpAccessToken,
+      idpGroups: claims.idpGroups,
+    });
+
+    if (access === 'none') {
+      return NextResponse.json(
+        {
+          error: 'access_denied',
+          error_description: 'Your account does not have read or write access to this vault.',
+        },
+        { status: 403 },
+      );
+    }
+
+    scope = access === 'write' ? 'mcp:read mcp:write' : 'mcp:read';
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'server_error', error_description: (err as Error).message },
+      { status: 500 },
+    );
+  }
+
   const { baseUrl } = await resolveServerUrls();
   const audience = `${baseUrl.origin}/api/mcp`;
 
   const { token: accessToken } = await signAccessToken({
     userId: claims.sub,
     clientId: claims.clientId,
-    scope: 'mcp:read mcp:write',
+    scope,
     issuer: baseUrl.origin,
     audience,
     extra: {
@@ -60,7 +87,7 @@ export async function POST(req: NextRequest) {
       access_token: accessToken,
       token_type: 'Bearer',
       expires_in: ACCESS_TOKEN_TTL_SECONDS,
-      scope: 'mcp:read mcp:write',
+      scope,
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );
