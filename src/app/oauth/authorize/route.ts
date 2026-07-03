@@ -4,6 +4,7 @@ import { signAuthCode } from '@/lib/oauth/jwt';
 import { getClient, registerClient } from '@/lib/oauth/clients';
 import { parseAuthorizeParams } from '@/lib/oauth/authorize';
 import { resolveServerUrls } from '@/lib/oauth/urls';
+import { isMcpAuthDisabled } from '@/lib/mcp/auth';
 
 const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/;
 
@@ -30,6 +31,25 @@ export async function GET(req: NextRequest) {
 
   if (!client || !client.redirectUris.includes(params.redirectUri)) {
     return NextResponse.json({ error: 'invalid_client' }, { status: 400 });
+  }
+
+  // KAN-32 workaround: skip the real Entra sign-in (blocked on admin consent)
+  // and issue a code straight away, attributed to the same synthetic user
+  // /api/mcp uses when MCP_AUTH_DISABLED is set.
+  if (isMcpAuthDisabled()) {
+    const code = await signAuthCode({
+      sub: process.env.MCP_AUTH_DISABLED_USER ?? 'auth-disabled@skynest',
+      clientId: params.clientId,
+      redirectUri: params.redirectUri,
+      codeChallenge: params.codeChallenge,
+      idpAccessToken: '',
+      idpLogin: process.env.MCP_AUTH_DISABLED_USER ?? 'auth-disabled@skynest',
+      idpGroups: undefined,
+    });
+    const redirect = new URL(params.redirectUri);
+    redirect.searchParams.set('code', code);
+    if (params.state) redirect.searchParams.set('state', params.state);
+    return NextResponse.redirect(redirect);
   }
 
   const session = await auth();
