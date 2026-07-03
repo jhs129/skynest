@@ -2,7 +2,7 @@ const features = [
   {
     title: 'Always on',
     description:
-      'Deployed on Vercel — your vault is reachable over HTTPS 24/7, not just when your Mac is open.',
+      'Deployed to the Cloud — your vault is reachable over HTTPS 24/7, not just when your computer is open.',
   },
   {
     title: 'Multi-user',

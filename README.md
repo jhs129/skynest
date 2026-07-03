@@ -30,7 +30,7 @@ All 19 Context Nest MCP tools — `read_document`, `search`, `create_document`, 
 
 | | |
 |---|---|
-| **Always on** | Deployed on Vercel — your vault is reachable over HTTPS 24/7, not just when your Mac is open. |
+| **Always on** | Deployed to the Cloud — your vault is reachable over HTTPS 24/7, not just when your computer is open. |
 | **Multi-user** | Every team member signs in with their own GitHub account. Writes are committed with native git attribution. |
 | **Git-versioned** | Every document change is a real commit in a private GitHub repository — full history, diffs, and rollback. |
 | **read.ai integration** | Meeting transcripts are automatically ingested into the vault when a meeting ends — no manual action needed. |
