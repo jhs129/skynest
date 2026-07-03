@@ -43,4 +43,13 @@ describe('createAuthorizationProvider', () => {
     const provider = createAuthorizationProvider();
     expect(provider).toBeInstanceOf(EntraAuthorizationProvider);
   });
+
+  it('parses comma-separated group IDs (with whitespace) into multiple write groups', async () => {
+    process.env.AUTH_PROVIDER = 'entra';
+    process.env.AUTHZ_ENTRA_WRITE_GROUP_ID = 'careteam-group-id, led-group-id';
+    const provider = createAuthorizationProvider();
+    await expect(
+      provider.checkAccess({ idpAccessToken: 'tok', idpGroups: ['led-group-id'] }),
+    ).resolves.toBe('write');
+  });
 });

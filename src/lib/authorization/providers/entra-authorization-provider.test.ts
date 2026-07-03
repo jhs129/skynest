@@ -10,8 +10,8 @@ beforeEach(() => {
 
 describe('EntraAuthorizationProvider.checkAccess — claim-based (idpGroups present)', () => {
   const provider = new EntraAuthorizationProvider({
-    writeGroupId: 'write-group-id',
-    readGroupId: 'read-group-id',
+    writeGroupIds: ['write-group-id'],
+    readGroupIds: ['read-group-id'],
   });
 
   it('returns write when idpGroups contains the write group', async () => {
@@ -33,10 +33,47 @@ describe('EntraAuthorizationProvider.checkAccess — claim-based (idpGroups pres
   });
 });
 
+describe('EntraAuthorizationProvider.checkAccess — multiple groups per level', () => {
+  const provider = new EntraAuthorizationProvider({
+    writeGroupIds: ['careteam-group-id', 'led-group-id'],
+    readGroupIds: ['readers-group-id'],
+  });
+
+  it('returns write on membership in any configured write group', async () => {
+    for (const group of ['careteam-group-id', 'led-group-id']) {
+      const access = await provider.checkAccess({ idpAccessToken: 'tok', idpGroups: [group] });
+      expect(access).toBe('write');
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('prefers write when the user is in both a write and a read group', async () => {
+    const access = await provider.checkAccess({
+      idpAccessToken: 'tok',
+      idpGroups: ['readers-group-id', 'led-group-id'],
+    });
+    expect(access).toBe('write');
+  });
+
+  it('sends every configured group ID to the Graph fallback', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ value: ['led-group-id'] }) });
+    const access = await provider.checkAccess({ idpAccessToken: 'tok' });
+    expect(access).toBe('write');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://graph.microsoft.com/v1.0/me/checkMemberGroups',
+      expect.objectContaining({
+        body: JSON.stringify({
+          groupIds: ['careteam-group-id', 'led-group-id', 'readers-group-id'],
+        }),
+      }),
+    );
+  });
+});
+
 describe('EntraAuthorizationProvider.checkAccess — Graph fallback (idpGroups undefined)', () => {
   const provider = new EntraAuthorizationProvider({
-    writeGroupId: 'write-group-id',
-    readGroupId: 'read-group-id',
+    writeGroupIds: ['write-group-id'],
+    readGroupIds: ['read-group-id'],
   });
 
   it('calls checkMemberGroups and returns write when it lists the write group', async () => {

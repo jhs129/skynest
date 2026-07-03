@@ -164,8 +164,8 @@ AUTHZ_GITHUB_REPO=<github-username-or-org>/contextnest-vault
 ENTRA_TENANT_ID=<entra-tenant-id>
 ENTRA_CLIENT_ID=<entra-app-client-id>
 ENTRA_CLIENT_SECRET=<entra-app-client-secret>
-AUTHZ_ENTRA_WRITE_GROUP_ID=<entra-security-group-id>   # members get mcp:read + mcp:write
-AUTHZ_ENTRA_READ_GROUP_ID=<entra-security-group-id>    # members get mcp:read only
+AUTHZ_ENTRA_WRITE_GROUP_ID=<group-id>[,<group-id>...]  # members get mcp:read + mcp:write (comma-separated for multiple groups)
+AUTHZ_ENTRA_READ_GROUP_ID=<group-id>[,<group-id>...]   # members get mcp:read only (comma-separated for multiple groups)
 
 # read.ai webhook (optional — only needed if using the webhook integration)
 WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path
