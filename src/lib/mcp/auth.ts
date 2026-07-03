@@ -8,10 +8,31 @@ export interface McpExtra {
   vaultId: string;   // selected vault, derived from MCP server URL path
 }
 
+// Escape hatch for testing non-auth-dependent functionality while an Entra admin
+// consent grant is pending (KAN-32). Set MCP_AUTH_DISABLED=true to bypass bearer
+// token verification entirely; unset (or any other value) to re-enable it.
+const AUTH_DISABLED = process.env.MCP_AUTH_DISABLED === 'true';
+
+function devBypassAuthInfo(): AuthInfo {
+  return {
+    token: 'mcp-auth-disabled',
+    clientId: 'mcp-auth-disabled',
+    scopes: ['mcp:read', 'mcp:write'],
+    extra: {
+      userToken: '',
+      userLogin: process.env.MCP_AUTH_DISABLED_USER ?? 'auth-disabled@skynest',
+      vaultId: '',
+    },
+  };
+}
+
 export async function verifyMcpToken(
-  token: string,
+  token: string | undefined,
   resourceUrl: string,
-): Promise<AuthInfo> {
+): Promise<AuthInfo | undefined> {
+  if (AUTH_DISABLED) return devBypassAuthInfo();
+  if (!token) return undefined;
+
   const key = await getPublicKey();
   const { payload } = await jwtVerify(token, key, {
     audience: resourceUrl,

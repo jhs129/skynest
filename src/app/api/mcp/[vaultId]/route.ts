@@ -20,7 +20,6 @@ function getHandler(vaultId: string) {
       withMcpAuth(
         mcpHandler,
         async (req: Request, bearerToken?: string) => {
-          if (!bearerToken) return undefined;
           const url = new URL(req.url);
           // Tokens are issued with /api/mcp as the audience regardless of vault path.
           const resourceUrl = `${url.origin}/api/mcp`;

@@ -13,7 +13,6 @@ const handler = createMcpHandler(
 const authHandler = withMcpAuth(
   handler,
   async (req: Request, bearerToken?: string) => {
-    if (!bearerToken) return undefined;
     const url = new URL(req.url);
     // Respect x-forwarded-proto / x-forwarded-host set by TLS-terminating proxies
     // (Azure Container Apps, Vercel, etc.) so the computed audience matches the public URL.

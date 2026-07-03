@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/oauth/keys', () => ({
   getPublicKey: vi.fn(),
@@ -27,8 +27,8 @@ describe('verifyMcpToken', () => {
 
     const { verifyMcpToken } = await import('./auth.js');
     const result = await verifyMcpToken(token, 'https://example.com/api/mcp');
-    expect(result.extra).toMatchObject({ userToken: 'ghp_abc', userLogin: 'testuser' });
-    expect(result.clientId).toBe('mcpc_abc');
+    expect(result?.extra).toMatchObject({ userToken: 'ghp_abc', userLogin: 'testuser' });
+    expect(result?.clientId).toBe('mcpc_abc');
   });
 
   it('throws on expired token', async () => {
@@ -46,5 +46,38 @@ describe('verifyMcpToken', () => {
 
     const { verifyMcpToken } = await import('./auth.js');
     await expect(verifyMcpToken(token, 'https://example.com/api/mcp')).rejects.toThrow();
+  });
+
+  it('returns undefined when no token is provided and auth is not disabled', async () => {
+    const { verifyMcpToken } = await import('./auth.js');
+    const result = await verifyMcpToken(undefined, 'https://example.com/api/mcp');
+    expect(result).toBeUndefined();
+  });
+
+  describe('with MCP_AUTH_DISABLED=true', () => {
+    beforeEach(() => {
+      vi.resetModules();
+      process.env.MCP_AUTH_DISABLED = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env.MCP_AUTH_DISABLED;
+    });
+
+    it('returns a synthetic AuthInfo with full scopes even without a token', async () => {
+      const { verifyMcpToken } = await import('./auth.js');
+      const result = await verifyMcpToken(undefined, 'https://example.com/api/mcp');
+      expect(result?.scopes).toEqual(expect.arrayContaining(['mcp:read', 'mcp:write']));
+      expect(result?.extra).toMatchObject({ userLogin: expect.any(String) });
+    });
+
+    it('ignores a real token entirely and never calls getPublicKey', async () => {
+      const { getPublicKey } = await import('@/lib/oauth/keys');
+      vi.mocked(getPublicKey).mockClear();
+      const { verifyMcpToken } = await import('./auth.js');
+      const result = await verifyMcpToken('some-token', 'https://example.com/api/mcp');
+      expect(result).toBeDefined();
+      expect(getPublicKey).not.toHaveBeenCalled();
+    });
   });
 });
