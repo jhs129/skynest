@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
       (session as { idpAccessToken?: string }).idpAccessToken ?? '',
     idpLogin:
       (session as { idpLogin?: string }).idpLogin ?? session.user.name ?? '',
+    idpGroups: (session as { idpGroups?: string[] }).idpGroups,
   });
 
   const redirect = new URL(params.redirectUri);

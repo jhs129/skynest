@@ -62,6 +62,7 @@ interface AuthCodeClaims {
   codeChallenge: string;
   idpAccessToken: string;
   idpLogin: string;
+  idpGroups?: string[];
 }
 
 export async function signAuthCode(claims: AuthCodeClaims): Promise<string> {
