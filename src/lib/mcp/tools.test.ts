@@ -89,8 +89,8 @@ function makeServerStub() {
   return { server, tools };
 }
 
-function makeCtx(userToken = 'ghp_test', userLogin = 'testuser') {
-  return { authInfo: { extra: { userToken, userLogin } } };
+function makeCtx(userToken = 'ghp_test', userLogin = 'testuser', scopes = ['mcp:read', 'mcp:write']) {
+  return { authInfo: { extra: { userToken, userLogin }, scopes } };
 }
 
 // ── Test setup ────────────────────────────────────────────────────────────────
@@ -106,6 +106,38 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('registerTools', () => {
+  describe('write-scope enforcement', () => {
+    const WRITE_TOOLS = [
+      { name: 'create_document', args: { path: 'nodes/new-doc', title: 'New Doc', type: 'document', body: 'Hello' } },
+      { name: 'update_document', args: { path: 'nodes/existing' } },
+      { name: 'delete_document', args: { path: 'nodes/existing' } },
+      { name: 'publish_document', args: { path: 'nodes/existing' } },
+      { name: 'stage_drift_suggestion', args: { path: 'nodes/existing' } },
+      { name: 'approve_suggestion', args: { path: 'nodes/existing', suggestion_id: 'sugg-1' } },
+      { name: 'reject_suggestion', args: { path: 'nodes/existing', suggestion_id: 'sugg-1', reason: 'no' } },
+    ];
+
+    it.each(WRITE_TOOLS)('$name rejects a read-only token before touching storage', async ({ name, args }) => {
+      const { server, tools } = makeServerStub();
+      const { registerTools } = await import('./tools.js');
+      // @ts-expect-error — stub
+      registerTools(server);
+
+      const tool = tools.get(name);
+      const result = (await tool!.handler(args, makeCtx('ghp_test', 'testuser', ['mcp:read']))) as {
+        content: { text: string }[];
+        isError: boolean;
+      };
+
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.error).toMatch(/Insufficient permissions/);
+      expect(mockStorage.readDocument).not.toHaveBeenCalled();
+      expect(mockStorage.writeDocument).not.toHaveBeenCalled();
+      expect(mockStorage.deleteDocument).not.toHaveBeenCalled();
+    });
+  });
+
   describe('vault_info (read tool)', () => {
     it('calls readContextMd and readConfig and returns their data', async () => {
       mockStorage.readContextMd.mockResolvedValue('# My Vault');
