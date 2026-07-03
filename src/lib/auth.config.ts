@@ -19,6 +19,9 @@ function buildProviders() {
         clientId: process.env.ENTRA_CLIENT_ID!,
         clientSecret: process.env.ENTRA_CLIENT_SECRET!,
         issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        authorization: {
+          params: { scope: 'openid profile email GroupMember.Read.All' },
+        },
       }),
     ];
   }
@@ -47,18 +50,26 @@ export const authConfig: NextAuthConfig = {
         token.idpAccessToken = account.access_token;
         token.idpLogin = (account as { login?: string }).login ?? token.name;
       } else if (account?.provider === 'microsoft-entra-id') {
-        // No git-write-capable token exists under Entra ID (and GitHub sync
-        // is rejected under this mode anyway); only carry an attribution name.
-        const entraProfile = profile as { preferred_username?: string; email?: string } | undefined;
+        // The access token is used against Microsoft Graph's checkMemberGroups
+        // as a fallback when the groups claim is absent (see EntraAuthorizationProvider).
+        token.idpAccessToken = account.access_token;
+        const entraProfile = profile as
+          | { preferred_username?: string; email?: string; groups?: string[] }
+          | undefined;
         token.idpLogin = entraProfile?.preferred_username ?? entraProfile?.email ?? token.name;
+        token.idpGroups = entraProfile?.groups;
       }
       return token;
     },
     session({ session, token }) {
-      (session as typeof session & { idpAccessToken?: string; idpLogin?: string }).idpAccessToken =
-        token.idpAccessToken as string | undefined;
-      (session as typeof session & { idpAccessToken?: string; idpLogin?: string }).idpLogin =
-        token.idpLogin as string | undefined;
+      const s = session as typeof session & {
+        idpAccessToken?: string;
+        idpLogin?: string;
+        idpGroups?: string[];
+      };
+      s.idpAccessToken = token.idpAccessToken as string | undefined;
+      s.idpLogin = token.idpLogin as string | undefined;
+      s.idpGroups = token.idpGroups as string[] | undefined;
       return session;
     },
   },

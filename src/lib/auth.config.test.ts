@@ -70,15 +70,35 @@ describe('authConfig callbacks', () => {
     expect(token.idpLogin).toBe('octocat');
   });
 
-  it('jwt callback leaves idpAccessToken unset for Entra ID and sources idpLogin from preferred_username', async () => {
+  it('jwt callback carries an Entra ID access token and sources idpLogin from preferred_username', async () => {
     const authConfig = await loadAuthConfig();
     const token = await authConfig.callbacks!.jwt!({
       token: { name: 'Fallback Name' },
-      account: { provider: 'microsoft-entra-id' } as never,
+      account: { provider: 'microsoft-entra-id', access_token: 'entra_at_abc' } as never,
       profile: { preferred_username: 'jane@contoso.com', email: 'jane@other.com' } as never,
     } as never);
-    expect(token.idpAccessToken).toBeUndefined();
+    expect(token.idpAccessToken).toBe('entra_at_abc');
     expect(token.idpLogin).toBe('jane@contoso.com');
+  });
+
+  it('jwt callback copies profile.groups into idpGroups when present', async () => {
+    const authConfig = await loadAuthConfig();
+    const token = await authConfig.callbacks!.jwt!({
+      token: { name: 'Fallback Name' },
+      account: { provider: 'microsoft-entra-id', access_token: 'entra_at_abc' } as never,
+      profile: { preferred_username: 'jane@contoso.com', groups: ['group-a', 'group-b'] } as never,
+    } as never);
+    expect(token.idpGroups).toEqual(['group-a', 'group-b']);
+  });
+
+  it('jwt callback leaves idpGroups undefined when the profile has no groups claim', async () => {
+    const authConfig = await loadAuthConfig();
+    const token = await authConfig.callbacks!.jwt!({
+      token: { name: 'Fallback Name' },
+      account: { provider: 'microsoft-entra-id', access_token: 'entra_at_abc' } as never,
+      profile: { preferred_username: 'jane@contoso.com' } as never,
+    } as never);
+    expect(token.idpGroups).toBeUndefined();
   });
 
   it('jwt callback falls back to email when Entra ID profile has no preferred_username', async () => {
@@ -91,13 +111,14 @@ describe('authConfig callbacks', () => {
     expect(token.idpLogin).toBe('jane@other.com');
   });
 
-  it('session callback copies idpAccessToken/idpLogin from the token onto the session', async () => {
+  it('session callback copies idpAccessToken/idpLogin/idpGroups from the token onto the session', async () => {
     const authConfig = await loadAuthConfig();
     const session = await authConfig.callbacks!.session!({
       session: { user: {}, expires: '' } as never,
-      token: { idpAccessToken: 'ghp_abc', idpLogin: 'octocat' } as never,
+      token: { idpAccessToken: 'ghp_abc', idpLogin: 'octocat', idpGroups: ['group-a'] } as never,
     } as never);
     expect((session as { idpAccessToken?: string }).idpAccessToken).toBe('ghp_abc');
     expect((session as { idpLogin?: string }).idpLogin).toBe('octocat');
+    expect((session as { idpGroups?: string[] }).idpGroups).toEqual(['group-a']);
   });
 });
