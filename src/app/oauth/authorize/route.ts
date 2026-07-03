@@ -56,7 +56,11 @@ export async function GET(req: NextRequest) {
   if (!session?.user) {
     const { baseUrl } = await resolveServerUrls();
     const loginUrl = new URL('/auth/signin', baseUrl);
-    loginUrl.searchParams.set('callbackUrl', req.url);
+    // req.url reflects the container's internal listener address (e.g.
+    // 0.0.0.0:3000), not the public host; rebuild the callback against the
+    // proxy-aware baseUrl so NextAuth redirects back to a reachable URL.
+    const callbackUrl = new URL(req.nextUrl.pathname + req.nextUrl.search, baseUrl);
+    loginUrl.searchParams.set('callbackUrl', callbackUrl.href);
     return NextResponse.redirect(loginUrl);
   }
 
