@@ -13,6 +13,10 @@ export interface McpExtra {
 // token verification entirely; unset (or any other value) to re-enable it.
 const AUTH_DISABLED = process.env.MCP_AUTH_DISABLED === 'true';
 
+export function isMcpAuthDisabled(): boolean {
+  return AUTH_DISABLED;
+}
+
 function devBypassAuthInfo(): AuthInfo {
   return {
     token: 'mcp-auth-disabled',
