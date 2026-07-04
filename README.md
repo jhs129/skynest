@@ -167,6 +167,13 @@ ENTRA_CLIENT_SECRET=<entra-app-client-secret>
 AUTHZ_ENTRA_WRITE_GROUP_ID=<group-id>[,<group-id>...]  # members get mcp:read + mcp:write (comma-separated for multiple groups)
 AUTHZ_ENTRA_READ_GROUP_ID=<group-id>[,<group-id>...]   # members get mcp:read only (comma-separated for multiple groups)
 
+# Optional — also accept tokens issued directly by a trusted Entra tenant
+# (e.g. from an MCP client's own on-behalf-of flow), alongside Skynest's own
+# self-issued OAuth tokens. Leave both unset to keep today's self-issued-only
+# behavior exactly as-is.
+MCP_TRUSTED_ISSUER=https://login.microsoftonline.com/<tenant-guid>/v2.0
+MCP_TRUSTED_AUDIENCE=api://<skynest-entra-app-id>   # from that app registration's "Expose an API" Identifier URI
+
 # read.ai webhook (optional — only needed if using the webhook integration)
 WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path
 READ_AI_SIGNING_KEY=<hmac-key>     # from the read.ai dashboard
