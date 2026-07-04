@@ -222,6 +222,24 @@ describe('verifyMcpToken with a trusted external issuer', () => {
     expect(checkAccess).not.toHaveBeenCalled();
   });
 
+  it('rejects when MCP_TRUSTED_ISSUER is set but MCP_TRUSTED_AUDIENCE is unset (fails closed)', async () => {
+    const { generateKeyPair } = await import('jose');
+    const { privateKey, publicKey } = await generateKeyPair('RS256');
+    await mockResolveJwks(publicKey);
+    const checkAccess = vi.fn();
+    vi.doMock('@/lib/authorization/authorization-factory', () => ({
+      createAuthorizationProvider: () => ({ checkAccess }),
+    }));
+
+    delete process.env.MCP_TRUSTED_AUDIENCE;
+
+    const token = await signExternalToken(privateKey, { groups: [] });
+    const { verifyMcpToken } = await import('./auth.js');
+
+    await expect(verifyMcpToken(token, 'https://example.com/api/mcp')).rejects.toThrow();
+    expect(checkAccess).not.toHaveBeenCalled();
+  });
+
   it('rejects an expired external token, before checkAccess is called', async () => {
     const { generateKeyPair } = await import('jose');
     const { privateKey, publicKey } = await generateKeyPair('RS256');

@@ -52,7 +52,11 @@ async function verifySelfIssuedToken(token: string, resourceUrl: string): Promis
 
 async function verifyExternalToken(token: string): Promise<AuthInfo> {
   const issuer = process.env.MCP_TRUSTED_ISSUER as string;
-  const audience = process.env.MCP_TRUSTED_AUDIENCE as string;
+  const audience = process.env.MCP_TRUSTED_AUDIENCE;
+
+  if (!audience) {
+    throw new Error('MCP_TRUSTED_AUDIENCE must be set when MCP_TRUSTED_ISSUER is set');
+  }
 
   const jwks = await resolveJwks(issuer);
   const { payload } = await jwtVerify(token, jwks, {
