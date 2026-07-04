@@ -1,6 +1,8 @@
-import { jwtVerify } from 'jose';
+import { decodeJwt, jwtVerify } from 'jose';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getPublicKey } from '@/lib/oauth/keys';
+import { resolveJwks } from './trusted-issuer';
+import { createAuthorizationProvider } from '@/lib/authorization/authorization-factory';
 
 export interface McpExtra {
   userToken: string; // IdP access token (repo-scoped, when the IdP is GitHub); empty under IdPs with no write-capable token
@@ -29,13 +31,7 @@ function devBypassAuthInfo(): AuthInfo {
   };
 }
 
-export async function verifyMcpToken(
-  token: string | undefined,
-  resourceUrl: string,
-): Promise<AuthInfo | undefined> {
-  if (AUTH_DISABLED) return devBypassAuthInfo();
-  if (!token) return undefined;
-
+async function verifySelfIssuedToken(token: string, resourceUrl: string): Promise<AuthInfo> {
   const key = await getPublicKey();
   const { payload } = await jwtVerify(token, key, {
     audience: resourceUrl,
@@ -52,4 +48,61 @@ export async function verifyMcpToken(
     scopes: ((payload['scope'] as string) ?? '').split(' ').filter(Boolean),
     extra,
   };
+}
+
+async function verifyExternalToken(token: string): Promise<AuthInfo> {
+  const issuer = process.env.MCP_TRUSTED_ISSUER as string;
+  const audience = process.env.MCP_TRUSTED_AUDIENCE as string;
+
+  const jwks = await resolveJwks(issuer);
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer,
+    audience,
+    algorithms: ['RS256'],
+  });
+
+  const idpGroups = payload['groups'] as string[] | undefined;
+  const authz = createAuthorizationProvider();
+  const access = await authz.checkAccess({ idpAccessToken: token, idpGroups });
+
+  if (access === 'none') {
+    throw new Error('access_denied: caller has no read or write access to this vault');
+  }
+
+  const scopes = access === 'write' ? ['mcp:read', 'mcp:write'] : ['mcp:read'];
+  const userLogin =
+    (payload['preferred_username'] as string) ??
+    (payload['upn'] as string) ??
+    (payload['sub'] as string) ??
+    '';
+  const clientId = (payload['azp'] as string) ?? (payload['appid'] as string) ?? '';
+
+  const extra: Record<string, unknown> = {
+    userToken: token,
+    userLogin,
+  };
+  return { token, clientId, scopes, extra };
+}
+
+export async function verifyMcpToken(
+  token: string | undefined,
+  resourceUrl: string,
+): Promise<AuthInfo | undefined> {
+  if (AUTH_DISABLED) return devBypassAuthInfo();
+  if (!token) return undefined;
+
+  const trustedIssuer = process.env.MCP_TRUSTED_ISSUER;
+  if (trustedIssuer) {
+    let iss: string | undefined;
+    try {
+      iss = decodeJwt(token).iss;
+    } catch {
+      iss = undefined;
+    }
+    if (iss === trustedIssuer) {
+      return verifyExternalToken(token);
+    }
+  }
+
+  return verifySelfIssuedToken(token, resourceUrl);
 }
