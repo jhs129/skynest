@@ -30,9 +30,22 @@ export function DocsArchitecture() {
             API — this is the source of truth for version history and git attribution.
           </p>
           <p>
-            <strong className="text-gray-800">Auth:</strong> GitHub OAuth 2.1 with PKCE and
-            RS256 JWTs. MCP clients receive a short-lived Bearer token; user&apos;s GitHub
-            access token is embedded so writes are committed under their identity.
+            <strong className="text-gray-800">Auth:</strong> OAuth 2.1 with PKCE and RS256 JWTs.
+            The identity provider is pluggable via <InlineCode>AUTH_PROVIDER</InlineCode> — GitHub
+            or Microsoft Entra ID. MCP clients receive a short-lived Bearer token carrying{' '}
+            <InlineCode>mcp:read</InlineCode>/<InlineCode>mcp:write</InlineCode> scopes decided by
+            an <InlineCode>AuthorizationProvider</InlineCode> (see{' '}
+            <a href="#access" className="text-indigo-600 hover:underline">Access control</a>). In
+            GitHub mode the user&apos;s access token is embedded so writes are committed under
+            their identity.
+          </p>
+          <p>
+            <strong className="text-gray-800">Vault sync:</strong> pluggable via{' '}
+            <InlineCode>VAULT_SYNC_PROVIDER</InlineCode>. <InlineCode>github</InlineCode> commits
+            each write to a private repo through the GitHub API; <InlineCode>azure</InlineCode>{' '}
+            records writes as versioned Azure Blob uploads (with a tombstone version on delete);{' '}
+            <InlineCode>none</InlineCode> disables sync. Vercel Blob remains the primary read/write
+            document store in all modes.
           </p>
           <p>
             <strong className="text-gray-800">Engine:</strong> The{' '}

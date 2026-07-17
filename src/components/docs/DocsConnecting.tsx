@@ -7,8 +7,8 @@ export function DocsConnecting() {
         <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-4 space-y-1">
           <p className="text-sm font-medium text-indigo-800">Prerequisites</p>
           <ul className="text-sm text-indigo-700 space-y-1 list-disc list-inside">
-            <li>A <strong>GitHub account</strong> — you&apos;ll be prompted to authorize on first connection.</li>
-            <li><strong>Vault access</strong> — ask your Skynest admin to add your GitHub username as a collaborator on the vault repository.</li>
+            <li>An account with the deployment&apos;s identity provider — a <strong>GitHub account</strong> (GitHub mode) or a <strong>Microsoft Entra account</strong> (Azure mode). You&apos;ll be prompted to authorize on first connection.</li>
+            <li><strong>Vault access</strong> — ask your Skynest admin to grant you access: collaborator on the vault repository (GitHub mode) or membership in the read/write group (Entra mode). Without it, token exchange returns 403 and no token is issued.</li>
           </ul>
         </div>
 

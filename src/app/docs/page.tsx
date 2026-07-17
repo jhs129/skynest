@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { DocsOverview } from '@/components/docs/DocsOverview';
 import { DocsArchitecture } from '@/components/docs/DocsArchitecture';
 import { DocsDeployment } from '@/components/docs/DocsDeployment';
+import { DocsEnvVars } from '@/components/docs/DocsEnvVars';
+import { DocsAccessControl } from '@/components/docs/DocsAccessControl';
 import { DocsConnecting } from '@/components/docs/DocsConnecting';
 import { DocsSkill } from '@/components/docs/DocsSkill';
 import { DocsMcpTools } from '@/components/docs/DocsMcpTools';
@@ -18,6 +20,8 @@ const TOC = [
   { id: 'overview', label: 'What is Skynest?' },
   { id: 'architecture', label: 'Architecture' },
   { id: 'deploy', label: 'Deploying Skynest' },
+  { id: 'env', label: 'Environment variables' },
+  { id: 'access', label: 'Access control' },
   { id: 'connect', label: 'Connecting your AI tool' },
   { id: 'skill', label: 'Claude Code skill' },
   { id: 'tools', label: 'Available MCP tools' },
@@ -60,6 +64,8 @@ export default function DocsPage() {
         <DocsOverview />
         <DocsArchitecture />
         <DocsDeployment />
+        <DocsEnvVars />
+        <DocsAccessControl />
         <DocsConnecting />
         <DocsSkill />
         <DocsMcpTools />

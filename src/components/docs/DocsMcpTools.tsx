@@ -61,8 +61,11 @@ export function DocsMcpTools() {
           >
             Context Nest
           </a>{' '}
-          MCP server are available over HTTPS. Write tools additionally commit each change to
-          the vault&apos;s GitHub repository under the authenticated user&apos;s identity.
+          MCP server are available over HTTPS. Write tools require a token carrying the{' '}
+          <InlineCode>mcp:write</InlineCode> scope (see{' '}
+          <a href="#access" className="text-indigo-600 hover:underline">Access control</a>) and
+          record each change to the configured vault-sync backend under the authenticated
+          user&apos;s identity.
         </p>
 
         <div className="space-y-2">
@@ -74,7 +77,7 @@ export function DocsMcpTools() {
           <h3 className="text-base font-medium text-gray-800">
             Write tools{' '}
             <span className="text-xs font-normal text-gray-400 ml-1">
-              — each write is committed to the vault repo under your GitHub identity
+              — require the mcp:write scope; each write is recorded to the vault-sync backend under your identity
             </span>
           </h3>
           <ToolTable tools={WRITE_TOOLS} />
