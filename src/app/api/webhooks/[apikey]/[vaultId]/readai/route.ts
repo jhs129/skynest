@@ -171,6 +171,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
         path: `${id}.md`,
         content: Buffer.from(content, 'utf-8'),
         message: `ingest: meeting ${payload.session_id}`,
+        editedBy: 'readai-webhook',
         userToken: botToken,
       });
       console.log(`[skynest] git sync ok vault=${resolvedVaultId} doc=${id}`);

@@ -21,6 +21,7 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
       path: 'nodes/new-doc.md',
       content: Buffer.from('# New Doc'),
       message: 'create new-doc',
+      editedBy: 'octocat',
       userToken: 'ghp_testtoken',
     });
 
@@ -42,6 +43,7 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
       path: 'nodes/existing.md',
       content: Buffer.from('updated'),
       message: 'update existing',
+      editedBy: 'octocat',
       userToken: 'ghp_testtoken',
     });
 
@@ -58,6 +60,7 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
       path: 'nodes/doc.md',
       content: Buffer.from('x'),
       message: 'test',
+      editedBy: 'octocat',
       userToken: 'ghp_testtoken',
     })).rejects.toThrow(/GitHub sync failed.*401/);
     // 401 is not retryable: one GET + one PUT, then it gives up.
@@ -80,6 +83,7 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
       path: 'nodes/flaky.md',
       content: Buffer.from('y'),
       message: 'retry me',
+      editedBy: 'octocat',
       userToken: 'ghp_testtoken',
     });
 
@@ -104,6 +108,7 @@ describe('GitHubVaultSyncProvider.commitFile', () => {
       path: 'nodes/doc.md',
       content: Buffer.from('x'),
       message: 'test',
+      editedBy: 'octocat',
       userToken: 'ghp_testtoken',
     })).rejects.toThrow(/GitHub sync failed.*403/);
 
@@ -122,6 +127,7 @@ describe('GitHubVaultSyncProvider.deleteFile', () => {
     await provider.deleteFile({
       path: 'nodes/old.md',
       message: 'delete old',
+      editedBy: 'octocat',
       userToken: 'ghp_testtoken',
     });
 
@@ -129,5 +135,26 @@ describe('GitHubVaultSyncProvider.deleteFile', () => {
     const body = JSON.parse(deleteCall[1].body);
     expect(deleteCall[1].method).toBe('DELETE');
     expect(body.sha).toBe('del-sha');
+  });
+});
+
+describe('GitHubVaultSyncProvider missing userToken', () => {
+  it('commitFile throws a clear error when userToken is omitted', async () => {
+    await expect(provider.commitFile({
+      path: 'nodes/doc.md',
+      content: Buffer.from('x'),
+      message: 'test',
+      editedBy: 'octocat',
+    })).rejects.toThrow(/userToken is required/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('deleteFile throws a clear error when userToken is omitted', async () => {
+    await expect(provider.deleteFile({
+      path: 'nodes/doc.md',
+      message: 'delete',
+      editedBy: 'octocat',
+    })).rejects.toThrow(/userToken is required/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

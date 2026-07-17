@@ -10,8 +10,8 @@ export interface AccessTokenClaims extends JWTPayload {
 }
 
 export interface AccessTokenExtra {
-  userToken: string; // GitHub OAuth access token with repo scope
-  userLogin: string; // GitHub username
+  userToken: string; // IdP access token (repo-scoped, when the IdP is GitHub); empty under IdPs with no write-capable token
+  userLogin: string; // IdP username/login used for attribution
 }
 
 export async function signAccessToken(opts: {
@@ -60,8 +60,9 @@ interface AuthCodeClaims {
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
-  githubAccessToken: string;
-  githubLogin: string;
+  idpAccessToken: string;
+  idpLogin: string;
+  idpGroups?: string[];
 }
 
 export async function signAuthCode(claims: AuthCodeClaims): Promise<string> {

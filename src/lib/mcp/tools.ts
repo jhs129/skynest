@@ -34,6 +34,27 @@ function getExtra(authInfo: unknown): McpExtra {
   return (authInfo as { extra: McpExtra }).extra;
 }
 
+function requireWriteScope(
+  authInfo: unknown,
+): { content: [{ type: 'text'; text: string }]; isError: true } | null {
+  const scopes: string[] = (authInfo as { scopes?: string[] })?.scopes ?? [];
+  if (!scopes.includes('mcp:write')) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            error:
+              'Insufficient permissions: this account has read-only access to this vault. Write access is required.',
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+  return null;
+}
+
 /**
  * Permissive RBAC for hosted single-tenant context — the actor identity is
  * already attested by the GitHub OAuth token. Real zone RBAC is enforced at
@@ -446,6 +467,9 @@ export function registerTools(server: McpServer): void {
         .describe('Skill output format'),
     },
     async ({ path, title, type, tags, body, trigger, tools_required, output_format }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
@@ -518,6 +542,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(content, 'utf-8'),
         message: `create ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -544,6 +569,9 @@ export function registerTools(server: McpServer): void {
       body: z.string().optional().describe('New markdown body content'),
     },
     async ({ path, title, tags, status, body }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
@@ -587,6 +615,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(content, 'utf-8'),
         message: `update ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -607,6 +636,9 @@ export function registerTools(server: McpServer): void {
     'Delete a document and its version history from the vault',
     { path: z.string().describe("Document path (e.g., 'nodes/api-design')") },
     async ({ path }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
@@ -618,6 +650,7 @@ export function registerTools(server: McpServer): void {
       await sync.deleteFile({
         path: `${id}.md`,
         message: `delete ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -643,6 +676,9 @@ export function registerTools(server: McpServer): void {
       note: z.string().optional().describe('Version note'),
     },
     async ({ path, author, note }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
@@ -660,6 +696,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(serializeDocument(buf), 'utf-8'),
         message: `publish ${id} v${result.node.frontmatter.version}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -686,6 +723,9 @@ export function registerTools(server: McpServer): void {
       note: z.string().optional().describe('Optional human note explaining the drift'),
     },
     async ({ path, actor, note }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
@@ -773,6 +813,9 @@ export function registerTools(server: McpServer): void {
         .describe('Optional approval comment recorded in the chain event'),
     },
     async ({ path, suggestion_id, actor, comment }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage, sync, userToken } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');
@@ -797,6 +840,7 @@ export function registerTools(server: McpServer): void {
         path: `${id}.md`,
         content: Buffer.from(serializeDocument(updated), 'utf-8'),
         message: `approve suggestion ${suggestion_id} on ${id}`,
+        editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
       });
 
@@ -825,6 +869,9 @@ export function registerTools(server: McpServer): void {
         .describe("Actor identity recorded as rejector. Defaults to 'local-mcp'."),
     },
     async ({ path, suggestion_id, reason, actor }, ctx) => {
+      const permErr = requireWriteScope(ctx.authInfo);
+      if (permErr) return permErr;
+
       const extra = getExtra(ctx.authInfo);
       const { storage } = createEngine(extra.userToken, extra.vaultId);
       const id = path.replace(/\.md$/, '');

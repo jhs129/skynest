@@ -30,7 +30,7 @@ All 19 Context Nest MCP tools — `read_document`, `search`, `create_document`, 
 
 | | |
 |---|---|
-| **Always on** | Deployed on Vercel — your vault is reachable over HTTPS 24/7, not just when your Mac is open. |
+| **Always on** | Deployed to the Cloud — your vault is reachable over HTTPS 24/7, not just when your computer is open. |
 | **Multi-user** | Every team member signs in with their own GitHub account. Writes are committed with native git attribution. |
 | **Git-versioned** | Every document change is a real commit in a private GitHub repository — full history, diffs, and rollback. |
 | **read.ai integration** | Meeting transcripts are automatically ingested into the vault when a meeting ends — no manual action needed. |
@@ -153,6 +153,26 @@ BLOB_READ_WRITE_TOKEN=<vercel-blob-token>
 VAULT_REPO=<github-username-or-org>/contextnest-vault
 VAULT_BRANCH=main                  # optional, defaults to main
 VAULT_SYNC_PROVIDER=github         # 'github' (default) or 'none' to disable
+
+# Authorization — which identity mode gates mcp:read / mcp:write scope
+AUTH_PROVIDER=github               # 'github' (default) or 'entra'
+
+# Required when AUTH_PROVIDER=github (usually the same repo as VAULT_REPO)
+AUTHZ_GITHUB_REPO=<github-username-or-org>/contextnest-vault
+
+# Required when AUTH_PROVIDER=entra — sign-in via Microsoft Entra ID
+ENTRA_TENANT_ID=<entra-tenant-id>
+ENTRA_CLIENT_ID=<entra-app-client-id>
+ENTRA_CLIENT_SECRET=<entra-app-client-secret>
+AUTHZ_ENTRA_WRITE_GROUP_ID=<group-id>[,<group-id>...]  # members get mcp:read + mcp:write (comma-separated for multiple groups)
+AUTHZ_ENTRA_READ_GROUP_ID=<group-id>[,<group-id>...]   # members get mcp:read only (comma-separated for multiple groups)
+
+# Optional — also accept tokens issued directly by a trusted Entra tenant
+# (e.g. from an MCP client's own on-behalf-of flow), alongside Skynest's own
+# self-issued OAuth tokens. Leave both unset to keep today's self-issued-only
+# behavior exactly as-is.
+MCP_TRUSTED_ISSUER=https://login.microsoftonline.com/<tenant-guid>/v2.0
+MCP_TRUSTED_AUDIENCE=api://<skynest-entra-app-id>   # from that app registration's "Expose an API" Identifier URI
 
 # read.ai webhook (optional — only needed if using the webhook integration)
 WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { signAuthCode } from '@/lib/oauth/jwt';
 import { getClient, registerClient } from '@/lib/oauth/clients';
-import { parseAuthorizeParams } from '@/lib/oauth/authorize';
+import { parseAuthorizeParams, redirectUriIsRegistered } from '@/lib/oauth/authorize';
 import { resolveServerUrls } from '@/lib/oauth/urls';
+import { isMcpAuthDisabled } from '@/lib/mcp/auth';
 
 const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/;
 
@@ -28,15 +29,38 @@ export async function GET(req: NextRequest) {
     client = { name: 'MCP Client', redirectUris: [params.redirectUri] };
   }
 
-  if (!client || !client.redirectUris.includes(params.redirectUri)) {
+  if (!client || !redirectUriIsRegistered(client.redirectUris, params.redirectUri)) {
     return NextResponse.json({ error: 'invalid_client' }, { status: 400 });
+  }
+
+  // KAN-32 workaround: skip the real Entra sign-in (blocked on admin consent)
+  // and issue a code straight away, attributed to the same synthetic user
+  // /api/mcp uses when MCP_AUTH_DISABLED is set.
+  if (isMcpAuthDisabled()) {
+    const code = await signAuthCode({
+      sub: process.env.MCP_AUTH_DISABLED_USER ?? 'auth-disabled@skynest',
+      clientId: params.clientId,
+      redirectUri: params.redirectUri,
+      codeChallenge: params.codeChallenge,
+      idpAccessToken: '',
+      idpLogin: process.env.MCP_AUTH_DISABLED_USER ?? 'auth-disabled@skynest',
+      idpGroups: undefined,
+    });
+    const redirect = new URL(params.redirectUri);
+    redirect.searchParams.set('code', code);
+    if (params.state) redirect.searchParams.set('state', params.state);
+    return NextResponse.redirect(redirect);
   }
 
   const session = await auth();
   if (!session?.user) {
     const { baseUrl } = await resolveServerUrls();
     const loginUrl = new URL('/auth/signin', baseUrl);
-    loginUrl.searchParams.set('callbackUrl', req.url);
+    // req.url reflects the container's internal listener address (e.g.
+    // 0.0.0.0:3000), not the public host; rebuild the callback against the
+    // proxy-aware baseUrl so NextAuth redirects back to a reachable URL.
+    const callbackUrl = new URL(req.nextUrl.pathname + req.nextUrl.search, baseUrl);
+    loginUrl.searchParams.set('callbackUrl', callbackUrl.href);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -45,10 +69,11 @@ export async function GET(req: NextRequest) {
     clientId: params.clientId,
     redirectUri: params.redirectUri,
     codeChallenge: params.codeChallenge,
-    githubAccessToken:
-      (session as { githubAccessToken?: string }).githubAccessToken ?? '',
-    githubLogin:
-      (session as { githubLogin?: string }).githubLogin ?? session.user.name ?? '',
+    idpAccessToken:
+      (session as { idpAccessToken?: string }).idpAccessToken ?? '',
+    idpLogin:
+      (session as { idpLogin?: string }).idpLogin ?? session.user.name ?? '',
+    idpGroups: (session as { idpGroups?: string[] }).idpGroups,
   });
 
   const redirect = new URL(params.redirectUri);
