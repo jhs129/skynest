@@ -131,8 +131,8 @@ In the Vercel project dashboard (**Settings → Environment Variables**), add th
 
 ```bash
 # GitHub OAuth App (for user sign-in)
-AUTH_GITHUB_ID=<your-github-oauth-client-id>
-AUTH_GITHUB_SECRET=<your-github-oauth-client-secret>
+GITHUB_CLIENT_ID=<your-github-oauth-client-id>
+GITHUB_CLIENT_SECRET=<your-github-oauth-client-secret>
 
 # NextAuth
 AUTH_SECRET=<random-32-char-string>    # openssl rand -base64 32

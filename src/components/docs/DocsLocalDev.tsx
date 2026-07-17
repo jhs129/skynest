@@ -29,6 +29,18 @@ CONTEXTNEST_VAULT_PATH=/path/to/your/vault
 
 # Disable git sync
 VAULT_SYNC_PROVIDER=none`}</CodeBlock>
+        <div className="rounded-lg bg-red-50 border border-red-100 p-4 text-sm text-red-800 space-y-1">
+          <p className="font-medium">Bypassing auth locally</p>
+          <p>
+            To exercise the MCP endpoint without wiring up a full OAuth provider, set{' '}
+            <InlineCode>MCP_AUTH_DISABLED=true</InlineCode>. This skips all bearer-token
+            verification, issues codes without a real sign-in, and grants full{' '}
+            <InlineCode>mcp:read mcp:write</InlineCode> access under a synthetic identity
+            (override the attributed user with <InlineCode>MCP_AUTH_DISABLED_USER</InlineCode>).
+            It is a local/testing escape hatch only — <strong>never set it in a production
+            deployment</strong>, as it disables every access control described above.
+          </p>
+        </div>
         <div className="text-sm space-y-2">
           <p className="font-medium text-gray-700">Other useful commands</p>
           <div className="overflow-x-auto">

@@ -27,7 +27,8 @@ export function DocsWebhook() {
                 {[
                   ['WEBHOOK_API_KEY', 'Secret key embedded in the webhook URL path'],
                   ['READ_AI_SIGNING_KEY', 'HMAC signing key from the read.ai dashboard'],
-                  ['BOT_GITHUB_TOKEN', 'GitHub PAT with repo scope — used for vault commits'],
+                  ['BOT_GITHUB_TOKEN', 'GitHub PAT with repo scope for vault commits — GitHub-sync deployments only (the webhook has no logged-in user)'],
+                  ['AI_GATEWAY_API_KEY', 'Vercel AI Gateway key for the Claude Haiku classifier — resolved from the Vercel OIDC token automatically when deployed'],
                 ].map(([name, desc]) => (
                   <tr key={name} className="border-b border-gray-100">
                     <td className="py-2 pr-4 font-mono text-xs text-gray-800 whitespace-nowrap">{name}</td>
@@ -61,13 +62,13 @@ export function DocsWebhook() {
             <li>Deduplication check by <InlineCode>request_id</InlineCode> (returns 200 immediately if duplicate)</li>
             <li>Claude Haiku analyzes the meeting: client classification, tags, summary, action items</li>
             <li>A structured markdown node is written to <InlineCode>nodes/meetings/YYYY-MM-DD-slug.md</InlineCode></li>
-            <li>The file is committed to the vault GitHub repo under the bot&apos;s identity (after the response is sent)</li>
+            <li>The file is recorded to the configured vault-sync backend under the bot&apos;s identity (after the response is sent)</li>
           </ol>
         </SubSection>
 
         <div className="rounded-lg bg-amber-50 border border-amber-100 p-4 text-sm text-amber-800">
           <strong>Note:</strong> If the vault write fails, Skynest returns a 500 so read.ai
-          will retry. The git commit runs asynchronously after the response — a commit failure
+          will retry. The vault-sync write runs asynchronously after the response — a sync failure
           is logged but does not affect the response.
         </div>
       </div>
