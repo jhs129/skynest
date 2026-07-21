@@ -36,7 +36,15 @@ function isAllowedOrigin(uri: string, allowedOrigins: string[]): boolean {
 export async function POST(req: NextRequest) {
   const registrationSecret = process.env.OAUTH_REGISTRATION_SECRET;
 
-  const body = (await req.json()) as { client_name?: string; redirect_uris?: string[] };
+  let body: { client_name?: string; redirect_uris?: string[] };
+  try {
+    body = (await req.json()) as { client_name?: string; redirect_uris?: string[] };
+  } catch {
+    return NextResponse.json(
+      { error: 'invalid_client_metadata', error_description: 'Request body must be valid JSON' },
+      { status: 400 },
+    );
+  }
   const { client_name, redirect_uris } = body;
 
   if (!client_name || !redirect_uris?.length) {
@@ -85,7 +93,18 @@ export async function POST(req: NextRequest) {
   }
 
   const clientId = `mcpc_${crypto.randomBytes(16).toString('hex')}`;
-  await registerClient(clientId, { name: client_name, redirectUris: redirect_uris });
+  try {
+    await registerClient(clientId, { name: client_name, redirectUris: redirect_uris });
+  } catch (err: unknown) {
+    // Never let a storage failure bubble up as a bare 500 with an empty body:
+    // OAuth clients parse the response as JSON and choke on an empty body
+    // ("Unexpected EOF"). Always return a parseable OAuth error instead.
+    console.error('[oauth/register] failed to persist client:', err);
+    return NextResponse.json(
+      { error: 'server_error', error_description: 'Failed to persist client registration' },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json(
     {
