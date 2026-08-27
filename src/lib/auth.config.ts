@@ -29,6 +29,10 @@ function buildProviders() {
     GitHub({
       clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      // GitHub now returns an "iss" callback param (RFC 9207); Auth.js's
+      // GitHub preset has no issuer configured, so it rejects it unless we
+      // declare the issuer explicitly.
+      issuer: 'https://github.com/login/oauth',
       authorization: {
         params: { scope: 'read:user user:email repo' },
       },
