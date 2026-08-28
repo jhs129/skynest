@@ -399,7 +399,7 @@ interface CommitInput {
 async function commitNewVersion(
   input: CommitInput,
 ): Promise<{ versionEntry: VersionEntry; serialized: string }> {
-  const filePath = join(input.storage.root, `${input.documentId}.md`);
+  const filePath = join(input.storage.root ?? "", `${input.documentId}.md`);
   const parsed = parseDocument(filePath, input.newRawContent, input.documentId);
 
   const versionManager = new VersionManager(input.storage);

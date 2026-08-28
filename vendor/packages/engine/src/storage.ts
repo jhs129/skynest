@@ -438,7 +438,7 @@ export class NestStorage {
     options: { folder?: string; recursive?: boolean } = {},
   ): Promise<FolderEntry[]> {
     const base = options.folder === undefined ? "" : normalizeFolder(options.folder);
-    const allFiles = await this.provider.list("**/*.md");
+    const allFiles = await this.globProvider(["**/*.md"], NON_DOCUMENT_FILES);
     const recursive = options.recursive !== false;
     const counts = new Map<string, number>();
     const known = new Set<string>();
