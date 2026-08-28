@@ -60,6 +60,7 @@ export {
   QuarantineError,
   UnauthorizedActionError,
   ChainBreakError,
+  RejectedDocumentError,
 } from "./errors.js";
 
 // RBAC
@@ -139,6 +140,7 @@ export {
   TAG_PATTERN,
   CHECKSUM_PATTERN,
   ZONE_ID_PATTERN,
+  STATUS_ALIASES,
 } from "./schemas.js";
 
 // Parser
@@ -149,6 +151,14 @@ export {
   normalizeTags,
   stripTagPrefix,
   getChecksumContent,
+  normalizeStatus,
+  isDraft,
+  isPendingReview,
+  isApproved,
+  isPublished,
+  isRejected,
+  isRetrievable,
+  isSuperseded,
 } from "./parser.js";
 
 // Config
@@ -156,15 +166,19 @@ export { parseConfig, parseSyntaxConfig } from "./config.js";
 export type { SyntaxConfig } from "./config.js";
 
 // Storage
-export { NestStorage, UNSTAGED_DRIFT_SENTINEL } from "./storage.js";
-export type { LayoutMode, ReadDocumentOptions } from "./storage.js";
+export {
+  NestStorage,
+  UNSTAGED_DRIFT_SENTINEL,
+  normalizeDocumentId,
+  assertSafeDocumentId,
+  normalizeFolder,
+} from "./storage.js";
+export type { LayoutMode, ReadDocumentOptions, FolderEntry } from "./storage.js";
 
-// Storage provider interface, fs implementation, and factory
+// Storage provider interface and fs implementation
 export type { StorageProvider } from "./storage/storage-provider.js";
 export { StorageConflictError } from "./storage/storage-errors.js";
 export { FsStorageProvider } from "./storage/providers/fs-storage-provider.js";
-export { createStorageProvider } from "./storage/storage-factory.js";
-export type { StorageProviderConfig } from "./storage/storage-factory.js";
 
 // URI
 export { parseUri, canonicalizeUri, serializeUri, extractPath } from "./uri.js";
