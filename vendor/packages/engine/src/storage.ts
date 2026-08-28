@@ -241,6 +241,21 @@ async function quarantine(provider: StorageProvider, path: string): Promise<stri
   return dest;
 }
 
+/**
+ * `dirname(docId)` returns `"."` for a vault-root document id (e.g.
+ * `dirname("foo")`), which is correct as a filesystem path segment but not as
+ * a prefix to concatenate into a provider key: `FsStorageProvider.abs()`
+ * normalizes a literal `./` away via `join`, but a provider that concatenates
+ * keys verbatim (e.g. Skynest's Blob/Azure providers) would produce a real,
+ * broken `./`-prefixed key. Root-level documents are explicitly supported (the
+ * `*.md` glob pattern includes vault-root files), so every path built from
+ * `dirname(docId)` must route through this instead of using the raw value.
+ */
+function docParentDir(docId: string): string {
+  const dir = dirname(docId);
+  return dir === "." ? "" : dir;
+}
+
 export class NestStorage {
   readonly provider: StorageProvider;
 
@@ -889,7 +904,10 @@ export class NestStorage {
    * when it is needed. Returns 0 for a document with no artifacts.
    */
   async maxRecordedVersion(docId: string): Promise<number> {
-    const dir = `${dirname(docId)}/.versions/${basename(docId)}`;
+    const parent = docParentDir(docId);
+    const dir = parent
+      ? `${parent}/.versions/${basename(docId)}`
+      : `.versions/${basename(docId)}`;
     const entries = await this.provider.list(`${dir}/*`);
     let max = 0;
     for (const path of entries) {
@@ -900,19 +918,26 @@ export class NestStorage {
   }
 
   /**
-   * "Durable" here means "goes through provider.rename", which on FS is a real
-   * temp-file+fsync+rename dance (see FsStorageProvider) and on Blob/Azure is a
-   * plain overwrite — those backends have no local temp-file/fsync primitive to
-   * protect against a torn write, so this degrades to `provider.write` on them,
-   * matching the safety level they already had.
+   * "Durable" here means routing an overwrite through provider.write to a temp
+   * path, then provider.rename to the real path — an atomic-rename dance that
+   * FsStorageProvider.rename implements as a real filesystem rename (safe
+   * against a torn write becoming visible). Blob/Azure's rename is read+write+
+   * delete, which has no atomicity guarantee to begin with, so this degrades
+   * gracefully to "temp write then swap" there too — still strictly no worse
+   * than a plain overwrite.
    */
   private async writeFileDurable(path: string, content: string): Promise<void> {
-    await this.provider.write(path, Buffer.from(content, "utf-8"));
+    const tmp = `${path}.${process.pid}.${++this.tmpWriteCounter}.tmp`;
+    await this.provider.write(tmp, Buffer.from(content, "utf-8"));
+    await this.provider.rename(tmp, path);
   }
 
   /** Absolute path of a document's history.yaml. */
   private historyPath(docId: string): string {
-    return `${dirname(docId)}/.versions/${basename(docId)}/history.yaml`;
+    const dir = docParentDir(docId);
+    return dir
+      ? `${dir}/.versions/${basename(docId)}/history.yaml`
+      : `.versions/${basename(docId)}/history.yaml`;
   }
 
   /**
@@ -983,8 +1008,10 @@ export class NestStorage {
    */
   async readKeyframe(docId: string, version: number): Promise<string | null> {
     const docName = basename(docId);
-    const docDir = dirname(docId);
-    const keyframePath = `${docDir}/.versions/${docName}/v${version}.md`;
+    const dir = docParentDir(docId);
+    const keyframePath = dir
+      ? `${dir}/.versions/${docName}/v${version}.md`
+      : `.versions/${docName}/v${version}.md`;
     const buf = await this.provider.read(keyframePath);
     return buf === null ? null : buf.toString("utf-8");
   }
@@ -1007,8 +1034,10 @@ export class NestStorage {
     overwrite: boolean,
   ): Promise<void> {
     const docName = basename(docId);
-    const docDir = dirname(docId);
-    const path = `${docDir}/.versions/${docName}/${fileName}`;
+    const dir = docParentDir(docId);
+    const path = dir
+      ? `${dir}/.versions/${docName}/${fileName}`
+      : `.versions/${docName}/${fileName}`;
 
     if (overwrite) {
       await this.writeFileDurable(path, content);
@@ -1055,8 +1084,10 @@ export class NestStorage {
    */
   async readDiff(docId: string, version: number): Promise<string | null> {
     const docName = basename(docId);
-    const docDir = dirname(docId);
-    const diffPath = `${docDir}/.versions/${docName}/v${version}.diff`;
+    const dir = docParentDir(docId);
+    const diffPath = dir
+      ? `${dir}/.versions/${docName}/v${version}.diff`
+      : `.versions/${docName}/v${version}.diff`;
     const buf = await this.provider.read(diffPath);
     return buf === null ? null : buf.toString("utf-8");
   }
@@ -1096,8 +1127,8 @@ export class NestStorage {
    */
   private suggestionDir(docId: string): string {
     const docName = basename(docId);
-    const docDir = dirname(docId);
-    return `${docDir}/_suggestions/${docName}`;
+    const dir = docParentDir(docId);
+    return dir ? `${dir}/_suggestions/${docName}` : `_suggestions/${docName}`;
   }
 
   /** Write a unified-diff patch for a staged suggestion. */
@@ -1588,7 +1619,8 @@ export class NestStorage {
    * Write an INDEX.md file.
    */
   async writeIndexMd(folder: string, content: string): Promise<void> {
-    const indexPath = folder ? `${folder}/INDEX.md` : "INDEX.md";
+    const dir = folder === "." ? "" : folder;
+    const indexPath = dir ? `${dir}/INDEX.md` : "INDEX.md";
     await this.provider.write(indexPath, Buffer.from(content, "utf-8"));
   }
 
@@ -1632,7 +1664,13 @@ export class NestStorage {
       const parts = file.split("/");
       const versionsIdx = parts.indexOf(".versions");
       if (versionsIdx === -1) return null;
-      const docDir = parts.slice(0, versionsIdx).join("/");
+      // Strip a leading "./" segment some providers may include in listed
+      // keys, so a root-level document's docId never leaks it (see
+      // docParentDir).
+      const docDir = parts
+        .slice(0, versionsIdx)
+        .filter((part) => part !== ".")
+        .join("/");
       const docName = parts[versionsIdx + 1];
       const docId = docDir ? `${docDir}/${docName}` : docName;
       try {
