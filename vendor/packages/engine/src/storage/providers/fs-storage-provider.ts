@@ -62,6 +62,9 @@ export class FsStorageProvider implements StorageProvider {
   }
 
   async list(pattern: string): Promise<string[]> {
+    // suppressErrors skips any subtree the crawl can't stat/read (e.g. a
+    // permission-denied directory) instead of rejecting the whole call —
+    // matches upstream's own per-directory try/catch walk semantics.
     const results = await fg(pattern, {
       cwd: this.root,
       onlyFiles: true,
