@@ -5,6 +5,7 @@ const mockDeleteIfExists = vi.fn().mockResolvedValue({ succeeded: true });
 const mockDownload = vi.fn();
 const mockUpload = vi.fn().mockResolvedValue({});
 const mockExists = vi.fn();
+const mockGetProperties = vi.fn();
 const mockBlobItems: { name: string }[] = [];
 
 const mockContainerClient = {
@@ -12,6 +13,7 @@ const mockContainerClient = {
     download: mockDownload,
     deleteIfExists: mockDeleteIfExists,
     exists: mockExists,
+    getProperties: mockGetProperties,
   })),
   getBlockBlobClient: vi.fn(() => ({
     upload: mockUpload,
@@ -137,5 +139,68 @@ describe('AzureBlobStorageProvider', () => {
   it('exists returns true when blob present', async () => {
     mockExists.mockResolvedValue(true);
     expect(await provider.exists('nodes/doc.md')).toBe(true);
+  });
+
+  it('stat returns size and mtimeMs from getProperties()', async () => {
+    const testDate = new Date('2026-01-01T00:00:00Z');
+    mockGetProperties.mockResolvedValue({
+      contentLength: 42,
+      lastModified: testDate,
+    });
+    const info = await provider.stat('nodes/doc.md');
+    expect(info).toEqual({
+      size: 42,
+      mtimeMs: testDate.getTime(),
+    });
+    expect(mockContainerClient.getBlobClient).toHaveBeenCalledWith('default/nodes/doc.md');
+  });
+
+  it('stat returns null for a 404', async () => {
+    const err = Object.assign(new Error('Not found'), { statusCode: 404 });
+    mockGetProperties.mockRejectedValue(err);
+    expect(await provider.stat('missing.md')).toBeNull();
+  });
+
+  it('stat throws when lastModified is undefined', async () => {
+    mockGetProperties.mockResolvedValue({
+      contentLength: 42,
+      lastModified: undefined,
+    });
+    await expect(provider.stat('nodes/doc.md')).rejects.toThrow('lastModified is required');
+  });
+
+  it('writeExclusive throws StorageConflictError when blob exists', async () => {
+    mockExists.mockResolvedValue(true);
+    const { StorageConflictError } = await import('@promptowl/contextnest-engine');
+    await expect(provider.writeExclusive('nodes/doc.md', Buffer.from('x'))).rejects.toBeInstanceOf(
+      StorageConflictError,
+    );
+  });
+
+  it('writeExclusive writes when blob does not exist', async () => {
+    mockExists.mockResolvedValue(false);
+    const data = Buffer.from('test content');
+    await provider.writeExclusive('nodes/doc.md', data);
+    expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('default/nodes/doc.md');
+    expect(mockUpload).toHaveBeenCalledWith(data, data.length);
+  });
+
+  it('appendOrCreate appends to existing content', async () => {
+    const existingContent = Buffer.from('HEADER\nfirst\n');
+    const { Readable } = await import('stream');
+    mockDownload.mockResolvedValue({ readableStreamBody: Readable.from([existingContent]) });
+    await provider.appendOrCreate('log.yaml', 'HEADER\n', 'second\n');
+    expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('default/log.yaml');
+    const expectedContent = Buffer.from('HEADER\nfirst\nsecond\n');
+    expect(mockUpload).toHaveBeenCalledWith(expectedContent, expectedContent.length);
+  });
+
+  it('appendOrCreate creates with header and entry when file does not exist', async () => {
+    const err = Object.assign(new Error('Not found'), { statusCode: 404 });
+    mockDownload.mockRejectedValue(err);
+    await provider.appendOrCreate('log.yaml', 'HEADER\n', 'first\n');
+    expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('default/log.yaml');
+    const expectedContent = Buffer.from('HEADER\nfirst\n');
+    expect(mockUpload).toHaveBeenCalledWith(expectedContent, expectedContent.length);
   });
 });

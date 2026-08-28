@@ -94,12 +94,14 @@ export class AzureBlobStorageProvider implements StorageProvider {
   }
 
   async stat(path: string): Promise<{ size: number; mtimeMs: number } | null> {
-    // TODO(task-3): Implement with proper Azure Blob metadata support
     try {
       const properties = await this.containerClient.getBlobClient(this.blobName(path)).getProperties();
+      if (!properties.lastModified) {
+        throw new Error(`lastModified is required but missing for blob ${this.blobName(path)}`);
+      }
       return {
         size: properties.contentLength ?? 0,
-        mtimeMs: properties.lastModified?.getTime() ?? Date.now(),
+        mtimeMs: properties.lastModified.getTime(),
       };
     } catch (err: unknown) {
       if (isNotFound(err)) return null;
@@ -108,7 +110,6 @@ export class AzureBlobStorageProvider implements StorageProvider {
   }
 
   async writeExclusive(path: string, data: Buffer): Promise<void> {
-    // TODO(task-3): Implement with best-effort existence check (racy under concurrent writes)
     const exists = await this.exists(path);
     if (exists) {
       throw new StorageConflictError(path);
@@ -117,7 +118,6 @@ export class AzureBlobStorageProvider implements StorageProvider {
   }
 
   async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
-    // TODO(task-3): Implement as read-modify-write (non-atomic)
     const existing = await this.read(path);
     if (!existing) {
       await this.write(path, Buffer.from(header + entry, 'utf-8'));
