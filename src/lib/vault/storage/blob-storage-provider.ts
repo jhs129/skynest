@@ -33,7 +33,7 @@ export class BlobStorageProvider implements StorageProvider {
     return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
 
-  async write(path: string, data: Buffer): Promise<void> {
+  async write(path: string, data: Buffer, _options?: { sync?: boolean }): Promise<void> {
     await put(this.key(path), data, { access: 'private', addRandomSuffix: false, allowOverwrite: true });
   }
 
@@ -120,7 +120,7 @@ export class BlobStorageProvider implements StorageProvider {
 
   async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
     const existing = await this.read(path);
-    if (!existing) {
+    if (!existing || existing.length === 0) {
       await this.write(path, Buffer.from(header + entry, 'utf-8'));
       return;
     }

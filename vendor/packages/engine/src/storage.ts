@@ -162,7 +162,11 @@ const NON_DOCUMENT_BASENAMES = new Set([
   "README.md",
 ]);
 
-const NON_DOCUMENT_FILES = [
+// Directories and root-only scaffold files that are never documents,
+// regardless of their basename — safe to exclude at the glob level because
+// nothing downstream needs to distinguish "excluded because it's in
+// .versions/" from "excluded because it's CONTEXT.md".
+const NON_DOCUMENT_DIRS_AND_ROOT_FILES = [
   "**/node_modules/**",
   "**/.versions/**",
   "**/.context/**",
@@ -171,6 +175,10 @@ const NON_DOCUMENT_FILES = [
   // an authored document, the one at the vault root is the vault's preamble.
   "CONTEXT.md",
   "context.yaml",
+];
+
+const NON_DOCUMENT_FILES = [
+  ...NON_DOCUMENT_DIRS_AND_ROOT_FILES,
   ...[...NON_DOCUMENT_BASENAMES].map((name) => `**/${name}`),
 ];
 
@@ -441,17 +449,22 @@ export class NestStorage {
     options: { folder?: string; recursive?: boolean } = {},
   ): Promise<FolderEntry[]> {
     const base = options.folder === undefined ? "" : normalizeFolder(options.folder);
-    const allFiles = await this.globProvider(["**/*.md"], NON_DOCUMENT_FILES);
+    // Unlike discoverDocuments, this must NOT drop basename-filtered files
+    // (README.md etc.) from the crawl entirely — a folder whose only file is
+    // one of those still needs to register (with count: 0), which requires
+    // seeing the file here and filtering it from the *count* only, below.
+    const allFiles = await this.globProvider(["**/*.md"], NON_DOCUMENT_DIRS_AND_ROOT_FILES);
     const recursive = options.recursive !== false;
     const counts = new Map<string, number>();
     const known = new Set<string>();
 
     for (const file of allFiles) {
       const name = basename(file);
-      if (NON_DOCUMENT_BASENAMES.has(name)) continue;
       const dir = dirname(file) === "." ? "" : dirname(file);
       if (base && dir !== base && !dir.startsWith(`${base}/`)) continue;
       if (dir === base) continue; // a file directly in base belongs to no subfolder
+
+      const countable = !NON_DOCUMENT_BASENAMES.has(name);
 
       if (!recursive) {
         // Only the immediate child of base matters: fold any deeper descendant
@@ -460,7 +473,9 @@ export class NestStorage {
         const rel = base ? dir.slice(base.length + 1) : dir;
         const immediateChild = base ? `${base}/${rel.split("/")[0]}` : rel.split("/")[0];
         known.add(immediateChild);
-        if (dir === immediateChild) counts.set(immediateChild, (counts.get(immediateChild) ?? 0) + 1);
+        if (countable && dir === immediateChild) {
+          counts.set(immediateChild, (counts.get(immediateChild) ?? 0) + 1);
+        }
         continue;
       }
 
@@ -474,7 +489,7 @@ export class NestStorage {
         cursor = dirname(cursor) === "." ? "" : dirname(cursor);
       }
       for (const folder of chain) known.add(folder);
-      counts.set(dir, (counts.get(dir) ?? 0) + 1);
+      if (countable) counts.set(dir, (counts.get(dir) ?? 0) + 1);
     }
 
     const paths = new Set<string>([...known, ...counts.keys()]);
@@ -871,7 +886,15 @@ export class NestStorage {
    * recorded versions' keyframe/diff files and taking `reconstruct` with them.
    */
   async readHistory(docId: string): Promise<DocumentHistory | null> {
-    const buf = await this.provider.read(this.historyPath(docId));
+    let buf: Buffer | null;
+    try {
+      buf = await this.provider.read(this.historyPath(docId));
+    } catch (err) {
+      throw new CorruptHistoryError(
+        docId,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     if (buf === null) return null;
     const content = buf.toString("utf-8");
 
@@ -931,17 +954,26 @@ export class NestStorage {
 
   /**
    * "Durable" here means routing an overwrite through provider.write to a temp
-   * path, then provider.rename to the real path — an atomic-rename dance that
-   * FsStorageProvider.rename implements as a real filesystem rename (safe
-   * against a torn write becoming visible). Blob/Azure's rename is read+write+
-   * delete, which has no atomicity guarantee to begin with, so this degrades
-   * gracefully to "temp write then swap" there too — still strictly no worse
-   * than a plain overwrite.
+   * path with {sync: true} (fsync on FS backends — see the interface doc on
+   * StorageProvider.write), then provider.rename to the real path. FS's
+   * rename is a real filesystem rename (safe against a torn write becoming
+   * visible) over data already confirmed flushed to disk. Blob/Azure's
+   * rename is read+write+delete, which has no atomicity guarantee to begin
+   * with; write's own PUT durability there covers the flush concern, so this
+   * still degrades gracefully to "temp write then swap."
+   *
+   * If the rename fails, the temp file/object is deleted on a best-effort
+   * basis so a partial failure does not leak storage forever.
    */
   private async writeFileDurable(path: string, content: string): Promise<void> {
     const tmp = `${path}.${process.pid}.${++this.tmpWriteCounter}.tmp`;
-    await this.provider.write(tmp, Buffer.from(content, "utf-8"));
-    await this.provider.rename(tmp, path);
+    await this.provider.write(tmp, Buffer.from(content, "utf-8"), { sync: true });
+    try {
+      await this.provider.rename(tmp, path);
+    } catch (err) {
+      await this.provider.delete(tmp).catch(() => {});
+      throw err;
+    }
   }
 
   /** Absolute path of a document's history.yaml. */

@@ -613,7 +613,7 @@ const initOp: OperationDescriptor = {
   }),
   output: z.object({
     context_md: z.string().nullable().describe("The vault's operating instructions, if it has any"),
-    vault_path: z.string(),
+    vault_path: z.string().nullable(),
     config: z
       .object({
         name: z.string(),

@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NestStorage } from "../storage.js";
 import { publishDocument } from "../publish.js";
 import { runHygienistScan } from "../hygienist.js";
 import { scanCheckpointDrift } from "../checkpoint.js";
+import { CorruptHistoryError } from "../errors.js";
 import type { RbacHook } from "../types.js";
+
+// chmod 000 does not restrict access for root, and is a no-op on Windows —
+// skip the permission test there to avoid false negatives.
+const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+const skipPermTest = isRoot || process.platform === "win32";
 
 /**
  * Both vault-wide scanners document a no-throw contract: one ill-formed
@@ -91,4 +97,39 @@ describe("vault scanners survive one corrupt history.yaml", () => {
       expect(result.entries.some((e) => e.documentId === id)).toBe(true);
     }
   });
+});
+
+describe("NestStorage.readHistory — present-but-unreadable history.yaml", () => {
+  let root: string;
+  let storage: NestStorage;
+  let historyPath = "";
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "cn-history-ioerr-"));
+    storage = new NestStorage(root);
+    await storage.init("History IO Error Vault");
+
+    const docId = "nodes/locked-history";
+    await storage.writeDocument(docId, draft("locked-history"));
+    await publishDocument(storage, docId, { editedBy: "tester" });
+
+    historyPath = join(root, "nodes", ".versions", "locked-history", "history.yaml");
+  });
+
+  afterEach(async () => {
+    if (historyPath) {
+      await chmod(historyPath, 0o644).catch(() => {});
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it.skipIf(skipPermTest)(
+    "raises CorruptHistoryError (not the raw I/O error) when history.yaml is unreadable",
+    async () => {
+      await chmod(historyPath, 0o000);
+      await expect(storage.readHistory("nodes/locked-history")).rejects.toThrow(
+        CorruptHistoryError,
+      );
+    },
+  );
 });

@@ -22,10 +22,20 @@ export class FsStorageProvider implements StorageProvider {
     }
   }
 
-  async write(path: string, data: Buffer): Promise<void> {
+  async write(path: string, data: Buffer, options?: { sync?: boolean }): Promise<void> {
     const abs = this.abs(path);
     await mkdir(dirname(abs), { recursive: true });
-    await writeFile(abs, data);
+    if (!options?.sync) {
+      await writeFile(abs, data);
+      return;
+    }
+    const handle = await open(abs, 'w');
+    try {
+      await handle.writeFile(data);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
   }
 
   async delete(path: string): Promise<void> {

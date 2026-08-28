@@ -158,6 +158,18 @@ describe("folder-scoped discovery", () => {
     expect(folders.find((f) => f.path === "nodes/gtm")!.count).toBe(1);
   });
 
+  it("registers a folder whose only file is a non-countable scaffold file", async () => {
+    // A folder holding nothing but a README.md (in NON_DOCUMENT_BASENAMES)
+    // must still surface in the tree, just with count: 0 — the same as an
+    // empty folder would, not silently dropped.
+    await mkdir(join(root, "nodes/docs-only"), { recursive: true });
+    await writeFile(join(root, "nodes/docs-only/README.md"), "x", "utf-8");
+
+    const folders = await storage.listFolders();
+    const docsOnly = folders.find((f) => f.path === "nodes/docs-only");
+    expect(docsOnly).toEqual({ path: "nodes/docs-only", count: 0 });
+  });
+
   it("declares the error code a rejected folder actually raises", async () => {
     const api = createEngineApi();
     // `folder` is a plain string to zod, so a traversal clears validation and

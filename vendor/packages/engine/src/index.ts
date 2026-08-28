@@ -61,6 +61,11 @@ export {
   UnauthorizedActionError,
   ChainBreakError,
   RejectedDocumentError,
+  InvalidSelectorError,
+  CorruptHistoryError,
+  VersionArtifactExistsError,
+  UnknownAliasError,
+  SupersededDocumentError,
 } from "./errors.js";
 
 // RBAC

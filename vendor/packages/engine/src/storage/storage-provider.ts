@@ -1,8 +1,14 @@
 export interface StorageProvider {
   /** Read a vault-relative path. Returns null if the file does not exist. */
   read(path: string): Promise<Buffer | null>;
-  /** Write data to a vault-relative path. Creates parent directories as needed. */
-  write(path: string, data: Buffer): Promise<void>;
+  /**
+   * Write data to a vault-relative path. Creates parent directories as needed.
+   * `options.sync`, when true, requests that the write be flushed to durable
+   * storage before resolving (fsync on FS backends). Blob/Azure backends
+   * ignore it — an object-store PUT is already all-or-nothing durable once it
+   * resolves, so there is nothing extra to flush.
+   */
+  write(path: string, data: Buffer, options?: { sync?: boolean }): Promise<void>;
   /** Delete a file at a vault-relative path. No-op if it does not exist. */
   delete(path: string): Promise<void>;
   /** Recursively delete all files under a vault-relative directory prefix. */

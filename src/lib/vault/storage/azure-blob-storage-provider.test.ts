@@ -203,4 +203,13 @@ describe('AzureBlobStorageProvider', () => {
     const expectedContent = Buffer.from('HEADER\nfirst\n');
     expect(mockUpload).toHaveBeenCalledWith(expectedContent, expectedContent.length);
   });
+
+  it('appendOrCreate writes header+entry when the blob exists but is zero bytes', async () => {
+    const { Readable } = await import('stream');
+    mockDownload.mockResolvedValue({ readableStreamBody: Readable.from([]) });
+    await provider.appendOrCreate('log.yaml', 'HEADER\n', 'first\n');
+    expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('default/log.yaml');
+    const expectedContent = Buffer.from('HEADER\nfirst\n');
+    expect(mockUpload).toHaveBeenCalledWith(expectedContent, expectedContent.length);
+  });
 });

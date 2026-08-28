@@ -50,7 +50,7 @@ export class AzureBlobStorageProvider implements StorageProvider {
     }
   }
 
-  async write(path: string, data: Buffer): Promise<void> {
+  async write(path: string, data: Buffer, _options?: { sync?: boolean }): Promise<void> {
     await this.containerClient
       .getBlockBlobClient(this.blobName(path))
       .upload(data, data.length);
@@ -119,7 +119,7 @@ export class AzureBlobStorageProvider implements StorageProvider {
 
   async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
     const existing = await this.read(path);
-    if (!existing) {
+    if (!existing || existing.length === 0) {
       await this.write(path, Buffer.from(header + entry, 'utf-8'));
       return;
     }

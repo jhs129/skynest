@@ -218,4 +218,42 @@ describe('BlobStorageProvider', () => {
       { access: 'private', addRandomSuffix: false, allowOverwrite: true }
     );
   });
+
+  it('appendOrCreate writes header+entry when the file exists but is zero bytes', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    });
+    mockGet.mockResolvedValue({
+      statusCode: 200,
+      stream,
+      headers: new Headers(),
+      blob: {
+        url: 'https://store.blob.vercel-storage.com/vault/default/log.yaml',
+        downloadUrl: 'https://store.blob.vercel-storage.com/vault/default/log.yaml',
+        pathname: 'vault/default/log.yaml',
+        contentType: 'text/yaml',
+        contentDisposition: '',
+        cacheControl: '',
+        uploadedAt: new Date(),
+        etag: 'abc',
+        size: 0,
+      },
+    });
+    mockPut.mockResolvedValue({
+      url: 'https://example.com/vault/default/log.yaml',
+      pathname: 'vault/default/log.yaml',
+      contentType: 'application/octet-stream',
+      contentDisposition: '',
+      downloadUrl: 'https://example.com/vault/default/log.yaml',
+      etag: 'abc',
+    });
+    await provider.appendOrCreate('log.yaml', 'HEADER\n', 'first\n');
+    expect(mockPut).toHaveBeenCalledWith(
+      'vault/default/log.yaml',
+      Buffer.from('HEADER\nfirst\n', 'utf-8'),
+      { access: 'private', addRandomSuffix: false, allowOverwrite: true }
+    );
+  });
 });
