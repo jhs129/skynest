@@ -62,7 +62,11 @@ export class FsStorageProvider implements StorageProvider {
   }
 
   async list(pattern: string): Promise<string[]> {
-    const results = await fg(pattern, { cwd: this.root, onlyFiles: true });
+    const results = await fg(pattern, {
+      cwd: this.root,
+      onlyFiles: true,
+      suppressErrors: true,
+    });
     return results.sort();
   }
 

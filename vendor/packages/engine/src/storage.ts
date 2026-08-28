@@ -166,6 +166,7 @@ const NON_DOCUMENT_FILES = [
   "**/node_modules/**",
   "**/.versions/**",
   "**/.context/**",
+  "**/_suggestions/**",
   // Root-only, unlike the basenames below: a CONTEXT.md nested in a folder is
   // an authored document, the one at the vault root is the vault's preamble.
   "CONTEXT.md",
@@ -450,7 +451,18 @@ export class NestStorage {
       if (NON_DOCUMENT_BASENAMES.has(name)) continue;
       const dir = dirname(file) === "." ? "" : dirname(file);
       if (base && dir !== base && !dir.startsWith(`${base}/`)) continue;
-      if (!recursive && dir !== base) continue;
+      if (dir === base) continue; // a file directly in base belongs to no subfolder
+
+      if (!recursive) {
+        // Only the immediate child of base matters: fold any deeper descendant
+        // up to that child (so e.g. an empty folder with only a deeply-nested
+        // file still surfaces), but count only files that sit directly in it.
+        const rel = base ? dir.slice(base.length + 1) : dir;
+        const immediateChild = base ? `${base}/${rel.split("/")[0]}` : rel.split("/")[0];
+        known.add(immediateChild);
+        if (dir === immediateChild) counts.set(immediateChild, (counts.get(immediateChild) ?? 0) + 1);
+        continue;
+      }
 
       // Register every ancestor directory between base and dir (exclusive of
       // base itself) so an empty subfolder still shows up in the tree, and bump
@@ -462,7 +474,7 @@ export class NestStorage {
         cursor = dirname(cursor) === "." ? "" : dirname(cursor);
       }
       for (const folder of chain) known.add(folder);
-      if (dir !== base) counts.set(dir, (counts.get(dir) ?? 0) + 1);
+      counts.set(dir, (counts.get(dir) ?? 0) + 1);
     }
 
     const paths = new Set<string>([...known, ...counts.keys()]);
