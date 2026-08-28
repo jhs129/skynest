@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FsStorageProvider } from '../storage/providers/fs-storage-provider.js';
+import { StorageConflictError } from '../storage/storage-errors.js';
 
 let dir: string;
 let provider: FsStorageProvider;
@@ -55,5 +56,48 @@ describe('FsStorageProvider', () => {
     await provider.write('_suggestions/doc/s1.meta.yaml', Buffer.from('m'));
     await provider.deleteDir('_suggestions/doc');
     expect(await provider.list('_suggestions/**/*')).toEqual([]);
+  });
+});
+
+describe('StorageProvider new capability methods', () => {
+  it('stat returns null for a missing path and size/mtimeMs for an existing one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sp-test-'));
+    try {
+      const provider = new FsStorageProvider(root);
+      expect(await provider.stat('missing.txt')).toBeNull();
+      await provider.write('present.txt', Buffer.from('hello'));
+      const info = await provider.stat('present.txt');
+      expect(info?.size).toBe(5);
+      expect(typeof info?.mtimeMs).toBe('number');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writeExclusive succeeds once and throws StorageConflictError on the second call', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sp-test-'));
+    try {
+      const provider = new FsStorageProvider(root);
+      await provider.writeExclusive('once.txt', Buffer.from('a'));
+      await expect(provider.writeExclusive('once.txt', Buffer.from('b'))).rejects.toBeInstanceOf(
+        StorageConflictError,
+      );
+      expect((await provider.read('once.txt'))?.toString('utf-8')).toBe('a');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('appendOrCreate writes the header on first call and appends on subsequent calls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sp-test-'));
+    try {
+      const provider = new FsStorageProvider(root);
+      await provider.appendOrCreate('log.txt', 'HEADER\n', 'first\n');
+      await provider.appendOrCreate('log.txt', 'HEADER\n', 'second\n');
+      const content = (await provider.read('log.txt'))?.toString('utf-8');
+      expect(content).toBe('HEADER\nfirst\nsecond\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

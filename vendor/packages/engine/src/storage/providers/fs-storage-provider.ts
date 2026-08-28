@@ -1,9 +1,10 @@
 import {
-  readFile, writeFile, mkdir, unlink, rename, rm, access,
+  readFile, writeFile, mkdir, unlink, rename, rm, access, stat as fsStat, open,
 } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import fg from 'fast-glob';
 import type { StorageProvider } from '../storage-provider.js';
+import { StorageConflictError } from '../storage-errors.js';
 
 export class FsStorageProvider implements StorageProvider {
   constructor(private readonly root: string) {}
@@ -60,6 +61,61 @@ export class FsStorageProvider implements StorageProvider {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  async stat(path: string): Promise<{ size: number; mtimeMs: number } | null> {
+    try {
+      const s = await fsStat(this.abs(path));
+      return { size: s.size, mtimeMs: s.mtimeMs };
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  async writeExclusive(path: string, data: Buffer): Promise<void> {
+    const abs = this.abs(path);
+    await mkdir(dirname(abs), { recursive: true });
+    let handle;
+    try {
+      handle = await open(abs, 'wx');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new StorageConflictError(path);
+      }
+      throw err;
+    }
+    try {
+      await handle.writeFile(data);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
+    const abs = this.abs(path);
+    await mkdir(dirname(abs), { recursive: true });
+    try {
+      const created = await open(abs, 'wx');
+      try {
+        await created.writeFile(header + entry, 'utf-8');
+        await created.sync();
+      } finally {
+        await created.close();
+      }
+      return;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+    const handle = await open(abs, 'a');
+    try {
+      const { size } = await handle.stat();
+      await handle.write(size === 0 ? header + entry : entry);
+      await handle.sync();
+    } finally {
+      await handle.close();
     }
   }
 }

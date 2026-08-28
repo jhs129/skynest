@@ -161,6 +161,7 @@ export type { LayoutMode, ReadDocumentOptions } from "./storage.js";
 
 // Storage provider interface, fs implementation, and factory
 export type { StorageProvider } from "./storage/storage-provider.js";
+export { StorageConflictError } from "./storage/storage-errors.js";
 export { FsStorageProvider } from "./storage/providers/fs-storage-provider.js";
 export { createStorageProvider } from "./storage/storage-factory.js";
 export type { StorageProviderConfig } from "./storage/storage-factory.js";
