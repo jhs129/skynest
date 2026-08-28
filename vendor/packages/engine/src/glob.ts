@@ -38,6 +38,11 @@ function globToRegExp(pattern: string, dot: boolean): RegExp {
   return new RegExp(`^${source}$`);
 }
 
+/** Exported for storage.ts's ignore-list filtering on top of StorageProvider.list(). */
+export function globToRegExpForIgnore(pattern: string): RegExp {
+  return globToRegExp(pattern, true);
+}
+
 /**
  * Collect every file under `root` as a relative posix path.
  *
