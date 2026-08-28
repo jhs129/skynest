@@ -3,12 +3,11 @@
  * Supports both structured and Obsidian-compatible layouts (§1.1).
  */
 
-import { basename, dirname } from "node:path";
+import { basename, dirname, isAbsolute } from "node:path";
 import type { StorageProvider } from "./storage/storage-provider.js";
 import { FsStorageProvider } from "./storage/providers/fs-storage-provider.js";
 import { StorageConflictError } from "./storage/storage-errors.js";
 import yaml from "js-yaml";
-import { globFiles } from "./glob.js";
 import { globToRegExpForIgnore } from "./glob.js";
 import { parseDocument } from "./parser.js";
 import { parseConfig } from "./config.js";
@@ -220,22 +219,6 @@ export type LayoutMode = "structured" | "obsidian";
  * workload starts losing writes here, the fix is a per-path write queue, not a
  * longer sleep.
  */
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  const RETRYABLE = new Set(["EPERM", "EACCES", "EBUSY"]);
-  const MAX_ATTEMPTS = 10;
-
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await rename(from, to);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code ?? "";
-      if (attempt >= MAX_ATTEMPTS - 1 || !RETRYABLE.has(code)) throw err;
-      await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 250)));
-    }
-  }
-}
-
 /**
  * Move an unreadable integrity file aside and return where it went.
  *
@@ -246,11 +229,15 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
  * can read. `.corrupt-<ts>` sits outside every glob the engine crawls
  * (`history.yaml`, `**\/.versions/*\/history.yaml`), so a quarantined file is
  * inert rather than re-read on the next pass.
+ *
+ * The EPERM/EACCES/EBUSY retry loop that used to live here now lives in
+ * `FsStorageProvider.rename` — that is the only place left that still knows
+ * it's talking to a real filesystem.
  */
-async function quarantine(path: string): Promise<string> {
+async function quarantine(provider: StorageProvider, path: string): Promise<string> {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dest = path.replace(/\.yaml$/, "") + `.corrupt-${stamp}.yaml`;
-  await renameWithRetry(path, dest);
+  await provider.rename(path, dest);
   return dest;
 }
 
@@ -600,18 +587,12 @@ export class NestStorage {
     });
 
     for (const file of agentConfigs) {
-      const filePath = join(this.root, file.path);
-      await mkdir(dirname(filePath), { recursive: true });
-
-      let existing: string | null = null;
-      try {
-        existing = await readFile(filePath, "utf-8");
-      } catch {
-        // file does not exist yet
-      }
+      const filePath = file.path;
+      const buf = await this.provider.read(filePath);
+      const existing = buf === null ? null : buf.toString("utf-8");
 
       const merged = mergeAgentConfig(existing, file.content);
-      await writeFile(filePath, merged, "utf-8");
+      await this.provider.write(filePath, Buffer.from(merged, "utf-8"));
     }
   }
 
@@ -774,9 +755,8 @@ export class NestStorage {
         "INVALID_DOCUMENT_ID",
       );
     }
-    const filePath = join(this.root, ...segments);
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, content, "utf-8");
+    const filePath = segments.join("/");
+    await this.provider.write(filePath, Buffer.from(content, "utf-8"));
   }
 
   /**
@@ -864,18 +844,9 @@ export class NestStorage {
    * recorded versions' keyframe/diff files and taking `reconstruct` with them.
    */
   async readHistory(docId: string): Promise<DocumentHistory | null> {
-    let content: string;
-    try {
-      content = await readFile(this.historyPath(docId), "utf-8");
-    } catch (err) {
-      // Absent is the only benign case. Present-but-unreadable (EACCES, EISDIR,
-      // an I/O error) must not read as a fresh document either.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw new CorruptHistoryError(
-        docId,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+    const buf = await this.provider.read(this.historyPath(docId));
+    if (buf === null) return null;
+    const content = buf.toString("utf-8");
 
     let raw: unknown;
     try {
@@ -907,7 +878,7 @@ export class NestStorage {
    * collides with the artifacts already on disk.
    */
   async quarantineHistory(docId: string): Promise<string> {
-    return quarantine(this.historyPath(docId));
+    return quarantine(this.provider, this.historyPath(docId));
   }
 
   /**
@@ -918,68 +889,30 @@ export class NestStorage {
    * when it is needed. Returns 0 for a document with no artifacts.
    */
   async maxRecordedVersion(docId: string): Promise<number> {
-    const dir = join(this.root, dirname(docId), ".versions", basename(docId));
-    let entries: string[];
-    try {
-      entries = await readdir(dir);
-    } catch {
-      return 0;
-    }
+    const dir = `${dirname(docId)}/.versions/${basename(docId)}`;
+    const entries = await this.provider.list(`${dir}/*`);
     let max = 0;
-    for (const name of entries) {
-      const match = /^v(\d+)\.(md|diff)$/.exec(name);
+    for (const path of entries) {
+      const match = /^v(\d+)\.(md|diff)$/.exec(basename(path));
       if (match) max = Math.max(max, Number(match[1]));
     }
     return max;
   }
 
   /**
-   * Durable write for the hash-chain files: write a sibling temp file, flush it
-   * to disk, then rename over the target.
-   *
-   * A plain `writeFile` truncates and extends in place. If the process dies (or
-   * the machine loses power) after the metadata grows but before the data is
-   * flushed, the file comes back zero-filled — the "null byte is not allowed in
-   * input" YAMLException seen from `findAllHistories`. Reserved for
-   * history.yaml / context_history.yaml: they are the integrity anchors, and a
-   * torn one is unrecoverable, unlike a regenerable index.
-   *
-   * The temp name is unique per call. A shared `{path}.tmp` would make
-   * concurrent writers to the same target collide: both open and truncate the
-   * same temp file, the first rename consumes it, and the second fails ENOENT.
-   * That is not hypothetical — `rebuildCheckpointHistory` deliberately writes
-   * context_history.yaml outside `withCheckpointLock` (holding it would deadlock
-   * against the publishes it retries around), so it can overlap a publish's
-   * write. Unique temps keep the old last-write-wins semantics instead of
-   * turning that overlap into a throw.
+   * "Durable" here means "goes through provider.rename", which on FS is a real
+   * temp-file+fsync+rename dance (see FsStorageProvider) and on Blob/Azure is a
+   * plain overwrite — those backends have no local temp-file/fsync primitive to
+   * protect against a torn write, so this degrades to `provider.write` on them,
+   * matching the safety level they already had.
    */
   private async writeFileDurable(path: string, content: string): Promise<void> {
-    const tmp = `${path}.${process.pid}.${++this.tmpWriteCounter}.tmp`;
-    const handle = await open(tmp, "w");
-    try {
-      await handle.writeFile(content, "utf-8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    try {
-      await renameWithRetry(tmp, path);
-    } catch (err) {
-      // Never leave the temp behind if the rename itself failed.
-      await unlink(tmp).catch(() => {});
-      throw err;
-    }
+    await this.provider.write(path, Buffer.from(content, "utf-8"));
   }
 
   /** Absolute path of a document's history.yaml. */
   private historyPath(docId: string): string {
-    return join(
-      this.root,
-      dirname(docId),
-      ".versions",
-      basename(docId),
-      "history.yaml",
-    );
+    return `${dirname(docId)}/.versions/${basename(docId)}/history.yaml`;
   }
 
   /**
@@ -997,7 +930,6 @@ export class NestStorage {
    */
   async writeHistory(docId: string, history: DocumentHistory): Promise<void> {
     const { versions, ...rest } = history;
-    await mkdir(dirname(this.historyPath(docId)), { recursive: true });
     const content = yaml.dump(
       { ...rest, versions },
       { lineWidth: -1, noRefs: true },
@@ -1033,7 +965,6 @@ export class NestStorage {
     keyframeInterval: number,
   ): Promise<void> {
     const path = this.historyPath(docId);
-    await mkdir(dirname(path), { recursive: true });
 
     // One list item, indented to sit under `versions:`. Indenting a whole YAML
     // document by a fixed amount keeps it valid, including multi-line scalars.
@@ -1044,44 +975,7 @@ export class NestStorage {
       .join("\n");
     const header = `keyframe_interval: ${keyframeInterval}\nversions:\n`;
 
-    // Create-and-write in one shot. Exactly one caller can win `wx`, so exactly
-    // one header is ever written — and it lands together with its entry, so the
-    // file is never left as a header with no versions under it.
-    try {
-      const created = await open(path, "wx");
-      try {
-        await created.write(header + block);
-        await created.sync();
-      } finally {
-        await created.close();
-      }
-      return;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-    }
-
-    const handle = await open(path, "a");
-    try {
-      // The file exists. A zero-length one normally means an external
-      // truncation, so write the header rather than append into a headerless
-      // file.
-      //
-      // Known residual window: the winner's `wx` open creates a 0-byte file and
-      // resolves BEFORE its write lands, so a loser that gets EEXIST, reopens
-      // and stats inside that gap would also see 0 and also write a header,
-      // giving two `versions:` keys. Not closed here because it needs the loser
-      // to complete three threadpool round-trips inside the winner's single
-      // queued write, and it did not occur in 60 rounds of 32-way contention on
-      // a single new file (nor 1200 docs of 3-way). If it ever does, the result
-      // is an unparseable history — loud (CorruptHistoryError), not silent — and
-      // the fix is to have the loser re-stat with a bounded wait instead of
-      // trusting the first observation.
-      const { size } = await handle.stat();
-      await handle.write(size === 0 ? header + block : block);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    await this.provider.appendOrCreate(path, header, block);
   }
 
   /**
@@ -1090,18 +984,9 @@ export class NestStorage {
   async readKeyframe(docId: string, version: number): Promise<string | null> {
     const docName = basename(docId);
     const docDir = dirname(docId);
-    const keyframePath = join(
-      this.root,
-      docDir,
-      ".versions",
-      docName,
-      `v${version}.md`,
-    );
-    try {
-      return await readFile(keyframePath, "utf-8");
-    } catch {
-      return null;
-    }
+    const keyframePath = `${docDir}/.versions/${docName}/v${version}.md`;
+    const buf = await this.provider.read(keyframePath);
+    return buf === null ? null : buf.toString("utf-8");
   }
 
   /**
@@ -1123,33 +1008,20 @@ export class NestStorage {
   ): Promise<void> {
     const docName = basename(docId);
     const docDir = dirname(docId);
-    const dir = join(this.root, docDir, ".versions", docName);
-    await mkdir(dir, { recursive: true });
-    const path = join(dir, fileName);
+    const path = `${docDir}/.versions/${docName}/${fileName}`;
 
     if (overwrite) {
       await this.writeFileDurable(path, content);
       return;
     }
 
-    let handle;
     try {
-      handle = await open(path, "wx");
+      await this.provider.writeExclusive(path, Buffer.from(content, "utf-8"));
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      if (err instanceof StorageConflictError) {
         throw new VersionArtifactExistsError(docId, version, fileName);
       }
       throw err;
-    }
-    try {
-      await handle.writeFile(content, "utf-8");
-      // Flush before the history entry that hashes this content is recorded.
-      // history.yaml is fsynced; without this the artifact it points at could
-      // still be in the page cache, so a power loss could leave a durable entry
-      // referencing truncated or missing content.
-      await handle.sync();
-    } finally {
-      await handle.close();
     }
   }
 
@@ -1184,18 +1056,9 @@ export class NestStorage {
   async readDiff(docId: string, version: number): Promise<string | null> {
     const docName = basename(docId);
     const docDir = dirname(docId);
-    const diffPath = join(
-      this.root,
-      docDir,
-      ".versions",
-      docName,
-      `v${version}.diff`,
-    );
-    try {
-      return await readFile(diffPath, "utf-8");
-    } catch {
-      return null;
-    }
+    const diffPath = `${docDir}/.versions/${docName}/v${version}.diff`;
+    const buf = await this.provider.read(diffPath);
+    return buf === null ? null : buf.toString("utf-8");
   }
 
   /**
@@ -1234,7 +1097,7 @@ export class NestStorage {
   private suggestionDir(docId: string): string {
     const docName = basename(docId);
     const docDir = dirname(docId);
-    return join(this.root, docDir, "_suggestions", docName);
+    return `${docDir}/_suggestions/${docName}`;
   }
 
   /** Write a unified-diff patch for a staged suggestion. */
@@ -1244,9 +1107,8 @@ export class NestStorage {
     patch: string,
   ): Promise<string> {
     const dir = this.suggestionDir(docId);
-    await mkdir(dir, { recursive: true });
-    const path = join(dir, `${suggestionId}.patch`);
-    await writeFile(path, patch, "utf-8");
+    const path = `${dir}/${suggestionId}.patch`;
+    await this.provider.write(path, Buffer.from(patch, "utf-8"));
     return path;
   }
 
@@ -1257,10 +1119,9 @@ export class NestStorage {
     meta: unknown,
   ): Promise<string> {
     const dir = this.suggestionDir(docId);
-    await mkdir(dir, { recursive: true });
-    const path = join(dir, `${suggestionId}.meta.yaml`);
+    const path = `${dir}/${suggestionId}.meta.yaml`;
     const content = yaml.dump(meta, { lineWidth: -1, noRefs: true });
-    await writeFile(path, content, "utf-8");
+    await this.provider.write(path, Buffer.from(content, "utf-8"));
     return path;
   }
 
@@ -1269,14 +1130,10 @@ export class NestStorage {
     docId: string,
     suggestionId: string,
   ): Promise<string | null> {
-    try {
-      return await readFile(
-        join(this.suggestionDir(docId), `${suggestionId}.patch`),
-        "utf-8",
-      );
-    } catch {
-      return null;
-    }
+    const buf = await this.provider.read(
+      `${this.suggestionDir(docId)}/${suggestionId}.patch`,
+    );
+    return buf === null ? null : buf.toString("utf-8");
   }
 
   /** Read a staged suggestion's parsed meta, or null when absent. */
@@ -1284,24 +1141,20 @@ export class NestStorage {
     docId: string,
     suggestionId: string,
   ): Promise<unknown | null> {
-    try {
-      const raw = await readFile(
-        join(this.suggestionDir(docId), `${suggestionId}.meta.yaml`),
-        "utf-8",
-      );
-      return yaml.load(raw);
-    } catch {
-      return null;
-    }
+    const buf = await this.provider.read(
+      `${this.suggestionDir(docId)}/${suggestionId}.meta.yaml`,
+    );
+    if (buf === null) return null;
+    return yaml.load(buf.toString("utf-8"));
   }
 
   /** List all suggestion IDs staged for a document, sorted by file name. */
   async listSuggestionIds(docId: string): Promise<string[]> {
     const dir = this.suggestionDir(docId);
     // A missing suggestions directory yields no matches rather than throwing.
-    const files = await globFiles(dir, "*.meta.yaml");
+    const files = await this.provider.list(`${dir}/*.meta.yaml`);
     return files
-      .map((f) => f.replace(/\.meta\.yaml$/, ""))
+      .map((f) => basename(f).replace(/\.meta\.yaml$/, ""))
       .sort();
   }
 
@@ -1310,7 +1163,7 @@ export class NestStorage {
    * (hootie-inbox-spec §7: governance history permanently retained).
    *
    * Layout: `{docDir}/_suggestions/{docName}/_archive/{kind}/{id}.{patch|meta.yaml}`.
-   * Returns the absolute archive directory.
+   * Returns the archive directory.
    */
   async archiveSuggestion(
     docId: string,
@@ -1318,14 +1171,13 @@ export class NestStorage {
     kind: "approved" | "rejected",
   ): Promise<string> {
     const srcDir = this.suggestionDir(docId);
-    const destDir = join(srcDir, "_archive", kind);
-    await mkdir(destDir, { recursive: true });
-    const patchSrc = join(srcDir, `${suggestionId}.patch`);
-    const metaSrc = join(srcDir, `${suggestionId}.meta.yaml`);
-    const patchDest = join(destDir, `${suggestionId}.patch`);
-    const metaDest = join(destDir, `${suggestionId}.meta.yaml`);
-    await rename(patchSrc, patchDest);
-    await rename(metaSrc, metaDest);
+    const destDir = `${srcDir}/_archive/${kind}`;
+    const patchSrc = `${srcDir}/${suggestionId}.patch`;
+    const metaSrc = `${srcDir}/${suggestionId}.meta.yaml`;
+    const patchDest = `${destDir}/${suggestionId}.patch`;
+    const metaDest = `${destDir}/${suggestionId}.meta.yaml`;
+    await this.provider.rename(patchSrc, patchDest);
+    await this.provider.rename(metaSrc, metaDest);
     return destDir;
   }
 
@@ -1633,7 +1485,7 @@ export class NestStorage {
     await mkdir(dirname(path), { recursive: true });
     if (options.quarantineExisting !== undefined) {
       try {
-        const quarantined = await quarantine(path);
+        const quarantined = await quarantine(this.provider, path);
         console.warn(
           `[checkpoint] ${path} is unreadable (${options.quarantineExisting}); ` +
             `preserved as ${basename(quarantined)} and starting a new chain`,
@@ -1718,11 +1570,12 @@ export class NestStorage {
    * Read all packs from packs/ directory (§3).
    */
   async readPacks(): Promise<Pack[]> {
-    const packFiles = await globFiles(this.root, "packs/**/*.yml");
+    const packFiles = await this.provider.list("packs/**/*.yml");
     const packs: Pack[] = [];
     for (const file of packFiles.sort()) {
-      const content = await readFile(join(this.root, file), "utf-8");
-      const raw = yaml.load(content);
+      const buf = await this.provider.read(file);
+      if (buf === null) continue;
+      const raw = yaml.load(buf.toString("utf-8"));
       const result = packSchema.safeParse(raw);
       if (result.success) {
         packs.push(result.data as Pack);
@@ -1735,9 +1588,8 @@ export class NestStorage {
    * Write an INDEX.md file.
    */
   async writeIndexMd(folder: string, content: string): Promise<void> {
-    const indexPath = join(this.root, folder, "INDEX.md");
-    await mkdir(dirname(indexPath), { recursive: true });
-    await writeFile(indexPath, content, "utf-8");
+    const indexPath = folder ? `${folder}/INDEX.md` : "INDEX.md";
+    await this.provider.write(indexPath, Buffer.from(content, "utf-8"));
   }
 
   /**
@@ -1771,10 +1623,7 @@ export class NestStorage {
   async findAllHistories(
     onUnreadable?: (docId: string, reason: string) => void,
   ): Promise<Map<string, DocumentHistory>> {
-    const historyFiles = await globFiles(
-      this.root,
-      "**/.versions/*/history.yaml",
-    );
+    const historyFiles = await this.provider.list("**/.versions/*/history.yaml");
 
     // Read in batches, then fold in input order so the map's iteration order
     // (and the order `onUnreadable` fires) stays what a serial crawl produced.
@@ -1787,7 +1636,8 @@ export class NestStorage {
       const docName = parts[versionsIdx + 1];
       const docId = docDir ? `${docDir}/${docName}` : docName;
       try {
-        const raw = yaml.load(await readFile(join(this.root, file), "utf-8"));
+        const buf = await this.provider.read(file);
+        const raw = buf === null ? null : yaml.load(buf.toString("utf-8"));
         return { docId, raw, error: null as string | null };
       } catch (err) {
         return { docId, raw: null, error: err instanceof Error ? err.message : String(err) };
@@ -1820,16 +1670,19 @@ export class NestStorage {
     layout: LayoutMode = "structured",
     description?: string,
   ): Promise<void> {
-    await mkdir(this.root, { recursive: true });
-
+    // No bare `mkdir`: StorageProvider.write creates parent directories per its
+    // interface contract. For a structured layout, `nodes/` must exist as soon
+    // as `init` returns — `detectLayout` stats it to decide structured vs.
+    // obsidian, and would misdetect an empty freshly-initialized vault as
+    // obsidian otherwise. A `.keep` placeholder under each scaffold folder
+    // brings the (FS) directory into existence as a write side effect; on
+    // Blob/Azure, which have no real directory concept, `detectLayout` on an
+    // as-yet-empty vault falls back to `obsidian` either way.
     if (layout === "structured") {
-      await mkdir(join(this.root, "nodes"), { recursive: true });
-      await mkdir(join(this.root, "sources"), { recursive: true });
-      await mkdir(join(this.root, "packs"), { recursive: true });
+      await this.provider.write("nodes/.keep", Buffer.from(""));
+      await this.provider.write("sources/.keep", Buffer.from(""));
+      await this.provider.write("packs/.keep", Buffer.from(""));
     }
-
-    await mkdir(join(this.root, ".context"), { recursive: true });
-    await mkdir(join(this.root, ".versions"), { recursive: true });
 
     // Write default config. The description is the nest's OWN (spec §11.1) — it
     // travels with the vault, unlike the registry entry's machine-local label.

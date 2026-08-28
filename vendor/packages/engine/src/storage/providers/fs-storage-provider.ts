@@ -47,7 +47,18 @@ export class FsStorageProvider implements StorageProvider {
   async rename(from: string, to: string): Promise<void> {
     const absDest = this.abs(to);
     await mkdir(dirname(absDest), { recursive: true });
-    await rename(this.abs(from), absDest);
+    const RETRYABLE = new Set(["EPERM", "EACCES", "EBUSY"]);
+    const MAX_ATTEMPTS = 10;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(this.abs(from), absDest);
+        return;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code ?? "";
+        if (attempt >= MAX_ATTEMPTS - 1 || !RETRYABLE.has(code)) throw err;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 250)));
+      }
+    }
   }
 
   async list(pattern: string): Promise<string[]> {
