@@ -1,5 +1,6 @@
 import { put, del, list, head, get, BlobNotFoundError } from '@vercel/blob';
 import type { StorageProvider } from '@promptowl/contextnest-engine';
+import { StorageConflictError } from '@promptowl/contextnest-engine';
 
 export interface BlobStorageConfig {
   /** Top-level namespace prefix, e.g. "vault". Read from CONTEXTNEST_BLOB_PREFIX env var. */
@@ -88,5 +89,41 @@ export class BlobStorageProvider implements StorageProvider {
       if (err instanceof BlobNotFoundError) return false;
       throw err;
     }
+  }
+
+  async stat(path: string): Promise<{ size: number; mtimeMs: number } | null> {
+    // TODO(task-2): Implement with proper Blob metadata support
+    try {
+      const result = await head(this.key(path));
+      return {
+        size: result.size,
+        mtimeMs: result.uploadedAt?.getTime() ?? Date.now(),
+      };
+    } catch (err: unknown) {
+      if (err instanceof BlobNotFoundError) return null;
+      throw err;
+    }
+  }
+
+  async writeExclusive(path: string, data: Buffer): Promise<void> {
+    // TODO(task-2): Implement with best-effort existence check (racy under concurrent writes)
+    const exists = await this.exists(path);
+    if (exists) {
+      throw new StorageConflictError(path);
+    }
+    await this.write(path, data);
+  }
+
+  async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
+    // TODO(task-2): Implement as read-modify-write (non-atomic)
+    const existing = await this.read(path);
+    if (!existing) {
+      await this.write(path, Buffer.from(header + entry, 'utf-8'));
+      return;
+    }
+    await this.write(path, Buffer.concat([
+      existing,
+      Buffer.from(entry, 'utf-8'),
+    ]));
   }
 }
