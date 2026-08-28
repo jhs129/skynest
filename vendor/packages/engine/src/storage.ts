@@ -1214,7 +1214,7 @@ export class NestStorage {
 
   /** Absolute path of the checkpoint chain file. */
   private checkpointHistoryPath(): string {
-    return join(this.root, ".versions", "context_history.yaml");
+    return ".versions/context_history.yaml";
   }
 
   /**
@@ -1225,7 +1225,7 @@ export class NestStorage {
    * losing anything — see {@link readLatestCheckpoint}.
    */
   private latestCheckpointPath(): string {
-    return join(this.root, ".versions", "context_latest.yaml");
+    return ".versions/context_latest.yaml";
   }
 
   /**
@@ -1238,8 +1238,9 @@ export class NestStorage {
    */
   async readCheckpointHistory(): Promise<CheckpointHistory | null> {
     try {
-      const content = await readFile(this.checkpointHistoryPath(), "utf-8");
-      const raw = yaml.load(content);
+      const buf = await this.provider.read(this.checkpointHistoryPath());
+      if (buf === null) return null;
+      const raw = yaml.load(buf.toString("utf-8"));
       const result = checkpointHistorySchema.safeParse(raw);
       return result.success ? (result.data as CheckpointHistory) : null;
     } catch {
@@ -1267,16 +1268,10 @@ export class NestStorage {
    * tail. None of the three grows with the chain.
    */
   async readCheckpointChainState(): Promise<CheckpointChainState> {
-    let info: { size: number; mtimeMs: number };
-    try {
-      const s = await stat(this.checkpointHistoryPath());
-      info = { size: s.size, mtimeMs: s.mtimeMs };
-    } catch (err) {
-      // Absent is the only benign case; a permission or I/O failure here must
-      // not read as "no chain", which is what would license a quarantine.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
-      throw err;
-    }
+    // Absent is the only benign case; a permission or I/O failure here must
+    // not read as "no chain", which is what would license a quarantine.
+    const info = await this.provider.stat(this.checkpointHistoryPath());
+    if (info === null) return { kind: "absent" };
 
     const pointed = await this.readLatestCheckpointPointer(info);
     if (pointed) return { kind: "head", checkpoint: pointed };
@@ -1286,13 +1281,9 @@ export class NestStorage {
 
     // Neither shortcut resolved a head, so the file has to be read properly —
     // and this read is the one that decides corrupt vs merely empty.
-    let content: string;
-    try {
-      content = await readFile(this.checkpointHistoryPath(), "utf-8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
-      throw err;
-    }
+    const buf = await this.provider.read(this.checkpointHistoryPath());
+    if (buf === null) return { kind: "absent" };
+    const content = buf.toString("utf-8");
     let raw: unknown;
     try {
       raw = yaml.load(content);
@@ -1358,7 +1349,9 @@ export class NestStorage {
     info: { size: number; mtimeMs: number },
   ): Promise<Checkpoint | null> {
     try {
-      const raw = yaml.load(await readFile(this.latestCheckpointPath(), "utf-8"));
+      const buf = await this.provider.read(this.latestCheckpointPath());
+      if (buf === null) return null;
+      const raw = yaml.load(buf.toString("utf-8"));
       const pointer = raw as {
         history_bytes?: unknown;
         history_mtime_ms?: unknown;
@@ -1391,22 +1384,9 @@ export class NestStorage {
   ): Promise<Checkpoint | null> {
     const TAIL_BYTES = 64 * 1024;
     const start = Math.max(0, historyBytes - TAIL_BYTES);
-    let text: string;
-    try {
-      const handle = await open(this.checkpointHistoryPath(), "r");
-      try {
-        const buf = Buffer.alloc(historyBytes - start);
-        // A short read is normal on network-backed mounts. Decoding the
-        // untouched remainder would splice NUL bytes onto the text and send an
-        // otherwise-fine chain down the slow path.
-        const { bytesRead } = await handle.read(buf, 0, buf.length, start);
-        text = buf.subarray(0, bytesRead).toString("utf-8");
-      } finally {
-        await handle.close();
-      }
-    } catch {
-      return null;
-    }
+    const full = await this.provider.read(this.checkpointHistoryPath());
+    if (full === null) return null;
+    let text = full.subarray(start).toString("utf-8");
     // A window that starts mid-file almost certainly starts mid-line; drop the
     // partial one rather than feeding it to the parser.
     if (start > 0) {
@@ -1439,29 +1419,22 @@ export class NestStorage {
   private async writeLatestCheckpointPointer(
     checkpoint: Checkpoint,
   ): Promise<void> {
-    let info: { size: number; mtimeMs: number };
-    try {
-      const s = await stat(this.checkpointHistoryPath());
-      info = { size: s.size, mtimeMs: s.mtimeMs };
-    } catch {
-      return; // nothing to point at; the read path falls back cleanly
-    }
+    const info = await this.provider.stat(this.checkpointHistoryPath());
+    if (info === null) return; // nothing to point at; the read path falls back cleanly
     // Not writeFileDurable: this file is a cache. A torn one fails its staleness
     // check and costs one tail read, so paying an fsync per write to protect it
     // would trade away the thing being fixed for nothing.
-    await writeFile(
-      this.latestCheckpointPath(),
+    const content =
       "# Auto-generated cache of the newest checkpoint. Safe to delete.\n" +
-        yaml.dump(
-          {
-            history_bytes: info.size,
-            history_mtime_ms: info.mtimeMs,
-            checkpoint,
-          },
-          { lineWidth: -1, noRefs: true },
-        ),
-      "utf-8",
-    );
+      yaml.dump(
+        {
+          history_bytes: info.size,
+          history_mtime_ms: info.mtimeMs,
+          checkpoint,
+        },
+        { lineWidth: -1, noRefs: true },
+      );
+    await this.provider.write(this.latestCheckpointPath(), Buffer.from(content, "utf-8"));
   }
 
   /**
@@ -1480,19 +1453,14 @@ export class NestStorage {
    */
   async appendCheckpoint(checkpoint: Checkpoint): Promise<void> {
     const path = this.checkpointHistoryPath();
-    await mkdir(dirname(path), { recursive: true });
     const block = yaml
       .dump([checkpoint], { lineWidth: -1, noRefs: true })
       .split("\n")
       .map((line) => (line.length > 0 ? `  ${line}` : line))
       .join("\n");
-    const handle = await open(path, "a");
-    try {
-      await handle.write(block);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    await this.provider.appendOrCreate(path, "checkpoints:\n", block);
+    // Must run AFTER the append succeeds: the pointer cache is stamped with
+    // the chain file's post-append size/mtime, not the pre-append one.
     await this.writeLatestCheckpointPointer(checkpoint);
   }
 
@@ -1513,7 +1481,6 @@ export class NestStorage {
     options: { quarantineExisting?: string } = {},
   ): Promise<void> {
     const path = this.checkpointHistoryPath();
-    await mkdir(dirname(path), { recursive: true });
     if (options.quarantineExisting !== undefined) {
       try {
         const quarantined = await quarantine(this.provider, path);
@@ -1537,8 +1504,6 @@ export class NestStorage {
    * fresh chain. The publish path appends instead; see {@link appendCheckpoint}.
    */
   async writeCheckpointHistory(history: CheckpointHistory): Promise<void> {
-    const dir = join(this.root, ".versions");
-    await mkdir(dir, { recursive: true });
     const content =
       "# Auto-generated. Do not edit manually.\n" +
       yaml.dump(history, { lineWidth: -1, noRefs: true });
@@ -1548,7 +1513,7 @@ export class NestStorage {
     // with; the size check would catch that, but re-pointing is exact and free.
     const latest = history.checkpoints.at(-1);
     if (latest) await this.writeLatestCheckpointPointer(latest);
-    else await unlink(this.latestCheckpointPath()).catch(() => {});
+    else await this.provider.delete(this.latestCheckpointPath());
   }
 
   /**
@@ -1556,7 +1521,7 @@ export class NestStorage {
    * hootie-inbox-spec §8). Lives alongside the checkpoint history.
    */
   private chainEventLogPath(): string {
-    return join(this.root, ".versions", "chain_events.yaml");
+    return ".versions/chain_events.yaml";
   }
 
   /**
@@ -1566,19 +1531,15 @@ export class NestStorage {
    * schema-check, to stay symmetric with the other low-level readers.
    */
   async readChainEventLog(): Promise<unknown[]> {
-    try {
-      const raw = await readFile(this.chainEventLogPath(), "utf-8");
-      const parsed = yaml.load(raw);
-      if (Array.isArray(parsed)) return parsed;
-      // Tolerate documents that wrap the list under an `events:` key.
-      if (parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).events)) {
-        return (parsed as { events: unknown[] }).events;
-      }
-      return [];
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw err;
+    const buf = await this.provider.read(this.chainEventLogPath());
+    if (buf === null) return [];
+    const parsed = yaml.load(buf.toString("utf-8"));
+    if (Array.isArray(parsed)) return parsed;
+    // Tolerate documents that wrap the list under an `events:` key.
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).events)) {
+      return (parsed as { events: unknown[] }).events;
     }
+    return [];
   }
 
   /**
@@ -1589,12 +1550,10 @@ export class NestStorage {
   async appendChainEvent(event: unknown): Promise<void> {
     const existing = await this.readChainEventLog();
     existing.push(event);
-    const dir = join(this.root, ".versions");
-    await mkdir(dir, { recursive: true });
     const content =
       "# Hash chain events — append only. Do not edit manually.\n" +
       yaml.dump(existing, { lineWidth: -1, noRefs: true });
-    await writeFile(this.chainEventLogPath(), content, "utf-8");
+    await this.provider.write(this.chainEventLogPath(), Buffer.from(content, "utf-8"));
   }
 
   /**
