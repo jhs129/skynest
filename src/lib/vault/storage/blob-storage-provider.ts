@@ -92,12 +92,17 @@ export class BlobStorageProvider implements StorageProvider {
   }
 
   async stat(path: string): Promise<{ size: number; mtimeMs: number } | null> {
-    // TODO(task-2): Implement with proper Blob metadata support
     try {
       const result = await head(this.key(path));
+      // uploadedAt should always be present on Vercel Blobs; if it's missing,
+      // fail loudly rather than silently fabricate a "now" timestamp that would
+      // break staleness caching (making old files appear fresh).
+      if (!result.uploadedAt) {
+        throw new Error(`Blob metadata missing uploadedAt for ${path}`);
+      }
       return {
         size: result.size,
-        mtimeMs: result.uploadedAt?.getTime() ?? Date.now(),
+        mtimeMs: result.uploadedAt.getTime(),
       };
     } catch (err: unknown) {
       if (err instanceof BlobNotFoundError) return null;
@@ -106,7 +111,6 @@ export class BlobStorageProvider implements StorageProvider {
   }
 
   async writeExclusive(path: string, data: Buffer): Promise<void> {
-    // TODO(task-2): Implement with best-effort existence check (racy under concurrent writes)
     const exists = await this.exists(path);
     if (exists) {
       throw new StorageConflictError(path);
@@ -115,7 +119,6 @@ export class BlobStorageProvider implements StorageProvider {
   }
 
   async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
-    // TODO(task-2): Implement as read-modify-write (non-atomic)
     const existing = await this.read(path);
     if (!existing) {
       await this.write(path, Buffer.from(header + entry, 'utf-8'));
