@@ -1,6 +1,7 @@
 import { BlobServiceClient } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 import type { StorageProvider } from '@promptowl/contextnest-engine';
+import { StorageConflictError } from '@promptowl/contextnest-engine';
 
 export interface AzureBlobStorageConfig {
   containerName: string;
@@ -49,7 +50,7 @@ export class AzureBlobStorageProvider implements StorageProvider {
     }
   }
 
-  async write(path: string, data: Buffer): Promise<void> {
+  async write(path: string, data: Buffer, _options?: { sync?: boolean }): Promise<void> {
     await this.containerClient
       .getBlockBlobClient(this.blobName(path))
       .upload(data, data.length);
@@ -90,6 +91,42 @@ export class AzureBlobStorageProvider implements StorageProvider {
 
   async exists(path: string): Promise<boolean> {
     return this.containerClient.getBlobClient(this.blobName(path)).exists();
+  }
+
+  async stat(path: string): Promise<{ size: number; mtimeMs: number } | null> {
+    try {
+      const properties = await this.containerClient.getBlobClient(this.blobName(path)).getProperties();
+      if (!properties.lastModified) {
+        throw new Error(`lastModified is required but missing for blob ${this.blobName(path)}`);
+      }
+      return {
+        size: properties.contentLength ?? 0,
+        mtimeMs: properties.lastModified.getTime(),
+      };
+    } catch (err: unknown) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
+  }
+
+  async writeExclusive(path: string, data: Buffer): Promise<void> {
+    const exists = await this.exists(path);
+    if (exists) {
+      throw new StorageConflictError(path);
+    }
+    await this.write(path, data);
+  }
+
+  async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
+    const existing = await this.read(path);
+    if (!existing || existing.length === 0) {
+      await this.write(path, Buffer.from(header + entry, 'utf-8'));
+      return;
+    }
+    await this.write(path, Buffer.concat([
+      existing,
+      Buffer.from(entry, 'utf-8'),
+    ]));
   }
 }
 

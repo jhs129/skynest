@@ -1,5 +1,6 @@
 import { put, del, list, head, get, BlobNotFoundError } from '@vercel/blob';
 import type { StorageProvider } from '@promptowl/contextnest-engine';
+import { StorageConflictError } from '@promptowl/contextnest-engine';
 
 export interface BlobStorageConfig {
   /** Top-level namespace prefix, e.g. "vault". Read from CONTEXTNEST_BLOB_PREFIX env var. */
@@ -32,7 +33,7 @@ export class BlobStorageProvider implements StorageProvider {
     return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
 
-  async write(path: string, data: Buffer): Promise<void> {
+  async write(path: string, data: Buffer, _options?: { sync?: boolean }): Promise<void> {
     await put(this.key(path), data, { access: 'private', addRandomSuffix: false, allowOverwrite: true });
   }
 
@@ -88,5 +89,44 @@ export class BlobStorageProvider implements StorageProvider {
       if (err instanceof BlobNotFoundError) return false;
       throw err;
     }
+  }
+
+  async stat(path: string): Promise<{ size: number; mtimeMs: number } | null> {
+    try {
+      const result = await head(this.key(path));
+      // uploadedAt should always be present on Vercel Blobs; if it's missing,
+      // fail loudly rather than silently fabricate a "now" timestamp that would
+      // break staleness caching (making old files appear fresh).
+      if (!result.uploadedAt) {
+        throw new Error(`Blob metadata missing uploadedAt for ${path}`);
+      }
+      return {
+        size: result.size,
+        mtimeMs: result.uploadedAt.getTime(),
+      };
+    } catch (err: unknown) {
+      if (err instanceof BlobNotFoundError) return null;
+      throw err;
+    }
+  }
+
+  async writeExclusive(path: string, data: Buffer): Promise<void> {
+    const exists = await this.exists(path);
+    if (exists) {
+      throw new StorageConflictError(path);
+    }
+    await this.write(path, data);
+  }
+
+  async appendOrCreate(path: string, header: string, entry: string): Promise<void> {
+    const existing = await this.read(path);
+    if (!existing || existing.length === 0) {
+      await this.write(path, Buffer.from(header + entry, 'utf-8'));
+      return;
+    }
+    await this.write(path, Buffer.concat([
+      existing,
+      Buffer.from(entry, 'utf-8'),
+    ]));
   }
 }
