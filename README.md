@@ -269,6 +269,8 @@ Skynest exposes a standard MCP HTTP endpoint with OAuth 2.1. Any tool that suppo
 | `resolve` | Execute a selector query with graph traversal |
 | `read_document` | Read a document by URI or path |
 | `list_documents` | List documents with optional type/status/tag filters |
+| `get_skill` | Render a `type: skill` node as a skill file for an agent harness |
+| `get_skill_install_manifest` | Files for installing a vault skill locally (the calling agent writes them) |
 | `document_format` | Get the document format spec (call before creating docs) |
 | `read_index` | Return the context.yaml index |
 | `read_pack` | Resolve and return a context pack with documents |
@@ -294,6 +296,45 @@ Skynest exposes a standard MCP HTTP endpoint with OAuth 2.1. Any tool that suppo
 | `list_suggestions` | List all staged suggestions for a document |
 | `approve_suggestion` | Approve a suggestion: apply patch, bump version, archive |
 | `reject_suggestion` | Reject a suggestion: archive without modifying the document |
+
+---
+
+## Vault-hosted skills
+
+A vault can carry its own instructions for use. Save a `type: skill` node — `create_document`
+accepts `trigger`, `tools_required` and `output_format` — and any connected agent can fetch it
+and install a local loader in one step.
+
+**Designate an entry point** in `.context/config.yaml` so an agent with no prior knowledge can
+ask "how do I use this vault?" and get the right node. `vault_info` reports it.
+
+```yaml
+skills:
+  bootstrap: nodes/skills/vault-bootstrap
+```
+
+**Install it.** `get_skill_install_manifest` returns file contents and intended paths; the
+*calling agent* writes them, because this server is remote and has no filesystem access.
+
+```
+get_skill_install_manifest({ path: "nodes/skills/vault-bootstrap", server_alias: "skynest" })
+```
+
+Two things are worth knowing:
+
+- **`mode` defaults to `loader`.** The installed file carries the node's `skill.trigger` (as the
+  harness `description`, which is what decides whether the skill fires) plus an instruction to
+  fetch the procedure at run time — not the procedure itself. A local copy of a procedure drifts
+  the moment the node is updated, and the drift is invisible: the agent keeps working,
+  confidently, from superseded rules. `mode: "full"` inlines a snapshot for offline use and is a
+  deliberate choice.
+- **Pass `server_alias`.** The tool prefix is client-side configuration, not a server fact — the
+  same vault is `mcp__skynest__*` on one machine and `mcp__bigearnie-ctx__*` on another. It
+  defaults to the vault id. Node bodies should write `{{server_alias}}`, `{{vault_id}}` and
+  `{{node_path}}` rather than hardcoding a prefix; those are resolved per caller at render time.
+
+`get_skill` returns the same node rendered for a harness (`claude-code`, `cursor`, `codex`, or
+`raw`) without the install wrapper.
 
 ---
 
@@ -361,7 +402,7 @@ skynest/
 │   └── lib/
 │       ├── oauth/                                    # JWT signing, PKCE, token helpers
 │       ├── mcp/
-│       │   ├── tools.ts                              # Tool registration (19 tools)
+│       │   ├── tools.ts                              # Tool registration (21 tools)
 │       │   └── auth.ts                               # MCP token validation
 │       ├── vault/
 │       │   ├── index.ts                              # createEngine factory

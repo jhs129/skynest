@@ -16,6 +16,15 @@ import {
 } from '@promptowl/contextnest-engine';
 import type { Frontmatter, RbacHook } from '@promptowl/contextnest-engine';
 import { createEngine } from '@/lib/vault/index';
+import { readSkillsConfig } from '@/lib/vault/skills-config';
+import {
+  HARNESSES,
+  INSTALL_SCOPES,
+  INSTALL_MODES,
+  NotASkillNodeError,
+  buildInstallManifest,
+  renderSkill,
+} from './skills';
 import type { McpExtra } from './auth';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -67,6 +76,22 @@ const permissiveRbac: RbacHook = {
   isDocOwner: () => true,
 };
 
+/**
+ * The vault this call is addressing. Doubles as the default `server_alias`:
+ * absent a client-side name, the vault id is the best guess at what the caller
+ * configured this server as.
+ */
+function resolveVaultId(extra: McpExtra): string {
+  return extra.vaultId ?? process.env.CONTEXTNEST_DEFAULT_VAULT_ID ?? 'default';
+}
+
+function errorResult(message: string) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify({ error: message }, null, 2) }],
+    isError: true as const,
+  };
+}
+
 // ─── Tool registration ────────────────────────────────────────────────────────
 
 export function registerTools(server: McpServer): void {
@@ -80,6 +105,7 @@ export function registerTools(server: McpServer): void {
       const { storage } = createEngine(extra.userToken, extra.vaultId);
       const contextMd = await storage.readContextMd();
       const config = await storage.readConfig();
+      const skillsConfig = await readSkillsConfig(storage);
       return jsonResult({
         context_md: contextMd ?? '(no CONTEXT.md found)',
         config: config
@@ -89,6 +115,13 @@ export function registerTools(server: McpServer): void {
               servers: config.servers ? Object.keys(config.servers) : [],
             }
           : null,
+        vault_id: resolveVaultId(extra),
+        skills: {
+          bootstrap: skillsConfig?.bootstrap ?? null,
+          hint: skillsConfig?.bootstrap
+            ? `This vault designates "${skillsConfig.bootstrap}" as its entry-point skill — how an agent is meant to work with this vault. Read it with get_skill({ path: "${skillsConfig.bootstrap}" }).`
+            : 'This vault designates no entry-point skill. Set skills.bootstrap in .context/config.yaml, or browse what exists with list_documents({ type: "skill" }).',
+        },
       });
     },
   );
@@ -196,6 +229,113 @@ export function registerTools(server: McpServer): void {
           tags: d.frontmatter.tags,
         })),
       );
+    },
+  );
+
+  // ── get_skill ──────────────────────────────────────────────────────────────
+  server.tool(
+    'get_skill',
+    "Render a type: skill node as a skill file for an agent harness. Returns harness-format frontmatter (for claude-code, `description` derived from the node's skill.trigger) plus the body. Find candidates with list_documents({ type: 'skill' }), or vault_info for this vault's designated entry-point skill.",
+    {
+      path: z
+        .string()
+        .describe("Skill node path (e.g., 'nodes/execution/skills/context-layer-maintenance')"),
+      harness: z
+        .enum(HARNESSES)
+        .optional()
+        .default('claude-code')
+        .describe('Target agent harness. Controls frontmatter dialect and file location.'),
+      server_alias: z
+        .string()
+        .optional()
+        .describe(
+          'The name THIS MCP server is configured as on your client — the middle segment of your tool names (mcp__<alias>__get_skill). Generated content uses it for tool references. Defaults to the vault id, which is often not what your client calls it.',
+        ),
+    },
+    async ({ path, harness, server_alias }, ctx) => {
+      const extra = getExtra(ctx.authInfo);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
+      const id = path.replace(/\.md$/, '');
+      const vaultId = resolveVaultId(extra);
+      const doc = await storage.readDocument(id);
+      const config = await storage.readConfig();
+
+      try {
+        const rendered = renderSkill(doc, {
+          harness,
+          serverAlias: server_alias ?? vaultId,
+          vaultId,
+          vaultName: config?.name,
+        });
+        return jsonResult({
+          name: rendered.name,
+          description: rendered.description,
+          harness,
+          server_alias: server_alias ?? vaultId,
+          source_path: id,
+          version: doc.frontmatter.version ?? null,
+          status: doc.frontmatter.status ?? 'draft',
+          suggested_path: rendered.relativePath,
+          content: rendered.content,
+        });
+      } catch (err) {
+        if (err instanceof NotASkillNodeError) return errorResult(err.message);
+        throw err;
+      }
+    },
+  );
+
+  // ── get_skill_install_manifest ─────────────────────────────────────────────
+  server.tool(
+    'get_skill_install_manifest',
+    "Return the files needed to install a vault skill locally. THIS SERVER WRITES NOTHING — it is remote and has no filesystem access; you (the calling agent) write the returned files at their relative paths with your own file tools. Defaults to mode 'loader': the file carries the trigger and a fetch instruction back to the vault node, not the procedure, so it cannot drift. Use mode 'full' only when the vault will be unreachable at run time.",
+    {
+      path: z.string().describe("Skill node path (e.g., 'nodes/execution/skills/vault-bootstrap')"),
+      harness: z.enum(HARNESSES).optional().default('claude-code').describe('Target agent harness'),
+      scope: z
+        .enum(INSTALL_SCOPES)
+        .optional()
+        .default('user')
+        .describe(
+          "'project' writes into the current repo (.claude/skills/…); 'user' writes into the home directory (~/.claude/skills/…)",
+        ),
+      server_alias: z
+        .string()
+        .optional()
+        .describe(
+          'The name THIS MCP server is configured as on your client — the middle segment of your tool names. The generated loader calls back through it, so a wrong value produces a skill that cannot fetch. Defaults to the vault id.',
+        ),
+      mode: z
+        .enum(INSTALL_MODES)
+        .optional()
+        .default('loader')
+        .describe(
+          "'loader' (default) fetches the procedure from the vault at run time. 'full' inlines a snapshot that will go stale — a deliberate choice for offline use.",
+        ),
+    },
+    async ({ path, harness, scope, server_alias, mode }, ctx) => {
+      const extra = getExtra(ctx.authInfo);
+      const { storage } = createEngine(extra.userToken, extra.vaultId);
+      const id = path.replace(/\.md$/, '');
+      const vaultId = resolveVaultId(extra);
+      const doc = await storage.readDocument(id);
+      const config = await storage.readConfig();
+
+      try {
+        return jsonResult(
+          buildInstallManifest(doc, {
+            harness,
+            scope,
+            mode,
+            serverAlias: server_alias ?? vaultId,
+            vaultId,
+            vaultName: config?.name,
+          }),
+        );
+      } catch (err) {
+        if (err instanceof NotASkillNodeError) return errorResult(err.message);
+        throw err;
+      }
     },
   );
 
@@ -537,10 +677,14 @@ export function registerTools(server: McpServer): void {
 
       await storage.regenerateIndex();
 
-      // Git sync — errors propagate to the caller
+      // Git sync — errors propagate to the caller.
+      // Commit the POST-publish bytes: `content` above is the pre-publish
+      // serialization, still carrying status: draft and no version. Committing it
+      // leaves the repo a faithful mirror of the body but not of publication
+      // state, so anyone reading the repo concludes published nodes are drafts.
       await sync.commitFile({
         path: `${id}.md`,
-        content: Buffer.from(content, 'utf-8'),
+        content: Buffer.from(serializeDocument(result.node), 'utf-8'),
         message: `create ${id}`,
         editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
@@ -610,10 +754,12 @@ export function registerTools(server: McpServer): void {
 
       await storage.regenerateIndex();
 
-      // Git sync — errors propagate to the caller
+      // Git sync — errors propagate to the caller.
+      // Post-publish bytes, for the same reason as create_document: the
+      // pre-publish `content` still carries the old version number.
       await sync.commitFile({
         path: `${id}.md`,
-        content: Buffer.from(content, 'utf-8'),
+        content: Buffer.from(serializeDocument(result.node), 'utf-8'),
         message: `update ${id}`,
         editedBy: extra.userLogin ?? 'mcp@contextnest.hosted',
         userToken,
