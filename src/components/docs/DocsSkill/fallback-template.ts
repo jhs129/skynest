@@ -1,6 +1,13 @@
-import { Section, SubSection, CodeBlock, InlineCode } from './shared';
+/**
+ * Generic starting-point skill template.
+ *
+ * This is NOT any particular vault's skill — it is a labelled fallback, shown
+ * only when the vault designates no `skills.bootstrap` entry point (or it cannot
+ * be read). A vault that hosts its own skill node renders that instead, so the
+ * page never presents a static string as the instance's real instructions.
+ */
 
-const SKILL_TEMPLATE = `---
+export const SKILL_TEMPLATE = `---
 name: skynest
 description: Use when starting any session that involves your vault, when needing context on stored knowledge, when asked to remember something, or when completing work that should be persisted.
 ---
@@ -108,60 +115,3 @@ lasting value:
 - **Saving code implementations**: The vault is for knowledge, not source code;
   those belong in git.
 `;
-
-export function DocsSkill() {
-  return (
-    <Section id="skill" title="Claude Code skill">
-      <div className="space-y-6 text-gray-600">
-        <p className="text-sm">
-          A <strong>Claude Code skill</strong> is a Markdown file that Claude loads on demand to
-          guide how it interacts with a specific tool or service. Creating a Skynest skill teaches
-          Claude your vault&apos;s structure and gives it a repeatable protocol for querying and
-          saving knowledge — so you don&apos;t have to re-explain it each session.
-        </p>
-
-        <SubSection title="Create the skill file">
-          <p className="text-sm">
-            Save the following template to{' '}
-            <InlineCode>~/.claude/skills/skynest/skill.md</InlineCode> (create the directory if it
-            doesn&apos;t exist). Customise the{' '}
-            <InlineCode>description</InlineCode> frontmatter and the vault structure section to
-            match your own vault layout and tags.
-          </p>
-          <CodeBlock>{SKILL_TEMPLATE}</CodeBlock>
-        </SubSection>
-
-        <SubSection title="Activate the skill">
-          <p className="text-sm">
-            Once the file is in place, invoke the skill by typing{' '}
-            <InlineCode>/skynest</InlineCode> in Claude Code. Claude will load the skill and follow
-            its protocol for the rest of the session.
-          </p>
-          <p className="text-sm">
-            You can also configure the skill&apos;s <InlineCode>description</InlineCode> so that
-            Claude activates it automatically when the session context matches — for example,
-            whenever you start a session related to a project or topic your vault covers.
-          </p>
-        </SubSection>
-
-        <SubSection title="Customising the template">
-          <ul className="text-sm space-y-1 list-disc list-inside">
-            <li>
-              Update the <strong>vault structure</strong> section with your actual{' '}
-              <InlineCode>nodes/</InlineCode> paths and tags once you&apos;ve organised your vault.
-            </li>
-            <li>
-              Add <strong>workflow packs</strong> if you create named packs in your vault — call
-              them with{' '}
-              <InlineCode>{'mcp__skynest__read_pack({ id: "pack-name", hops: 2 })'}</InlineCode>.
-            </li>
-            <li>
-              Extend the <strong>common queries</strong> section with tag combinations specific to
-              your domain.
-            </li>
-          </ul>
-        </SubSection>
-      </div>
-    </Section>
-  );
-}

@@ -5,6 +5,8 @@ const READ_TOOLS = [
   { name: 'resolve', description: "Execute a selector query with graph traversal (e.g. '#engineering + type:document')" },
   { name: 'read_document', description: "Read a document by URI (contextnest://nodes/foo) or path (nodes/foo)" },
   { name: 'list_documents', description: 'List documents with optional type, status, and tag filters' },
+  { name: 'get_skill', description: "Render a type: skill node as a skill file for an agent harness — description derived from the node's skill.trigger" },
+  { name: 'get_skill_install_manifest', description: 'Return the files for installing a vault skill locally. The calling agent writes them — this server has no filesystem access. Defaults to a fetch-at-runtime loader.' },
   { name: 'document_format', description: 'Get the document format spec and frontmatter fields — call before creating docs' },
   { name: 'read_index', description: 'Return the context.yaml document graph index' },
   { name: 'read_pack', description: 'Resolve and return a context pack with documents and agent instructions' },

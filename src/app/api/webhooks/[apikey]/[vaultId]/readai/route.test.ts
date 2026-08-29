@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { createHmac } from 'crypto';
 
 // `after` from next/server throws outside a request scope under Vitest.
 // Stub it to invoke the callback immediately so the route's success path is testable.
