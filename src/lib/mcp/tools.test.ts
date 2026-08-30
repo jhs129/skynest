@@ -86,9 +86,15 @@ interface RegisteredTool {
 function makeServerStub() {
   const tools = new Map<string, RegisteredTool>();
   const server = {
-    tool: vi.fn((name: string, description: string, schema: unknown, handler: ToolHandler) => {
-      tools.set(name, { description, schema, handler });
-    }),
+    registerTool: vi.fn(
+      (
+        name: string,
+        config: { description: string; inputSchema: unknown },
+        handler: ToolHandler,
+      ) => {
+        tools.set(name, { description: config.description, schema: config.inputSchema, handler });
+      },
+    ),
   };
   return { server, tools };
 }
@@ -1130,6 +1136,241 @@ describe('registerTools', () => {
         chain_event_type: 'suggestion_rejected',
         rejection_reason: 'wrong approach',
       });
+    });
+  });
+
+  describe('input schemas reject unknown properties', () => {
+    /** The registered zod schema for a tool, as the SDK would parse arguments with. */
+    async function schemaFor(name: string) {
+      const tools = await loadTools();
+      return tools.get(name)!.schema as {
+        safeParse(v: unknown): { success: boolean };
+      };
+    }
+
+    it('rejects a misnamed argument instead of silently dropping it', async () => {
+      // The whole point: `update_document({ path, contents })` used to validate
+      // clean, publish a new version and leave the body untouched.
+      const schema = await schemaFor('update_document');
+      expect(schema.safeParse({ path: 'nodes/a', contents: 'hi' }).success).toBe(false);
+    });
+
+    it.each(['create_document', 'update_document', 'list_documents', 'search'])(
+      '%s rejects unknown keys',
+      async (name) => {
+        const schema = await schemaFor(name);
+        expect(schema.safeParse({ path: 'nodes/a', query: 'q', title: 'T', nope: 1 }).success).toBe(
+          false,
+        );
+      },
+    );
+
+    it('accepts `content` as an alias for `body` on both write tools', async () => {
+      expect(
+        (await schemaFor('update_document')).safeParse({ path: 'nodes/a', content: 'hi' }).success,
+      ).toBe(true);
+      expect(
+        (await schemaFor('create_document')).safeParse({
+          path: 'nodes/a',
+          title: 'A',
+          content: 'hi',
+        }).success,
+      ).toBe(true);
+    });
+  });
+
+  describe('update_document body aliasing and no-op detection', () => {
+    const EXISTING = {
+      id: 'nodes/existing',
+      frontmatter: { title: 'Existing', type: 'document', status: 'draft', version: 3, tags: ['#eng'] },
+      body: '\nold\n',
+      filePath: '',
+      rawContent: '',
+    };
+
+    function armDoc() {
+      const doc = { ...EXISTING, frontmatter: { ...EXISTING.frontmatter } };
+      mockStorage.readDocument.mockResolvedValue(doc);
+      return doc;
+    }
+
+    async function armPublish() {
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+      vi.mocked(publishDocument).mockResolvedValue({
+        node: { ...EXISTING, frontmatter: { ...EXISTING.frontmatter, version: 4 } },
+        checkpointNumber: 9,
+        versionEntry: {
+          chain_hash: 'hash-4',
+          version: 4,
+          content_hash: 'c4',
+          edited_by: 'testuser',
+          keyframe: false,
+          edited_at: '2024-01-01T00:00:00.000Z',
+        },
+      } as never);
+      return publishDocument;
+    }
+
+    it('writes the body when it arrives as `content`', async () => {
+      const doc = armDoc();
+      await armPublish();
+
+      const { data } = await callJson('update_document', {
+        path: 'nodes/existing',
+        content: 'brand new body',
+      });
+
+      expect(doc.body).toBe('\nbrand new body\n');
+      expect(data.changed).toBe(true);
+      expect(mockStorage.writeDocument).toHaveBeenCalled();
+    });
+
+    it('refuses `body` and `content` that disagree rather than picking one', async () => {
+      armDoc();
+      const { data, isError } = await callJson('update_document', {
+        path: 'nodes/existing',
+        body: 'one',
+        content: 'two',
+      });
+
+      expect(isError).toBe(true);
+      expect(data.error).toMatch(/aliases for the same field/);
+      expect(mockStorage.writeDocument).not.toHaveBeenCalled();
+    });
+
+    it('errors when no updatable field is supplied', async () => {
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+      const { data, isError } = await callJson('update_document', { path: 'nodes/existing' });
+
+      expect(isError).toBe(true);
+      expect(data.error).toMatch(/Nothing to update/);
+      expect(mockStorage.readDocument).not.toHaveBeenCalled();
+      expect(vi.mocked(publishDocument)).not.toHaveBeenCalled();
+    });
+
+    it('does not mint a version when the supplied values match what is stored', async () => {
+      armDoc();
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+
+      const { data } = await callJson('update_document', {
+        path: 'nodes/existing',
+        title: 'Existing',
+        body: 'old',
+        tags: ['eng'],
+      });
+
+      expect(data.changed).toBe(false);
+      expect(data.version).toBe(3);
+      expect(data.message).toMatch(/No changes/);
+      expect(vi.mocked(publishDocument)).not.toHaveBeenCalled();
+      expect(mockStorage.writeDocument).not.toHaveBeenCalled();
+      expect(mockSync.commitFile).not.toHaveBeenCalled();
+    });
+
+    it('sets description, and clears it when given an empty string', async () => {
+      const doc = armDoc();
+      await armPublish();
+
+      await callJson('update_document', { path: 'nodes/existing', description: 'What this is' });
+      expect(doc.frontmatter).toMatchObject({ description: 'What this is' });
+
+      await callJson('update_document', { path: 'nodes/existing', description: '' });
+      expect(doc.frontmatter).not.toHaveProperty('description');
+    });
+  });
+
+  describe('create_document description and body alias', () => {
+    async function armCreate() {
+      mockStorage.readDocument.mockRejectedValueOnce(new Error('not found'));
+      mockStorage.writeDocument.mockResolvedValue(undefined);
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+      vi.mocked(publishDocument).mockResolvedValue({
+        node: {
+          id: 'nodes/new-doc',
+          frontmatter: { title: 'New Doc', status: 'published', version: 1 },
+          body: '',
+          filePath: '',
+          rawContent: '',
+        },
+        checkpointNumber: 1,
+        versionEntry: {
+          chain_hash: 'h1',
+          version: 1,
+          content_hash: 'c1',
+          edited_by: 'testuser',
+          keyframe: true,
+          edited_at: '2024-01-01T00:00:00.000Z',
+        },
+      } as never);
+    }
+
+    it('carries description into the frontmatter and accepts `content` for the body', async () => {
+      await armCreate();
+      const { serializeDocument } = await import('@promptowl/contextnest-engine');
+
+      await callJson('create_document', {
+        path: 'nodes/new-doc',
+        title: 'New Doc',
+        description: 'A summary',
+        content: 'Body via alias',
+      });
+
+      const node = vi.mocked(serializeDocument).mock.calls[0][0] as {
+        frontmatter: { description?: string };
+        body: string;
+      };
+      expect(node.frontmatter.description).toBe('A summary');
+      expect(node.body).toBe('\nBody via alias\n');
+    });
+  });
+
+  describe('list_documents path filter', () => {
+    it('keeps the folder and its descendants, on segment boundaries', async () => {
+      mockStorage.discoverDocuments.mockResolvedValue([
+        { id: 'nodes/history', frontmatter: { title: 'H', status: 'draft' }, body: '' },
+        { id: 'nodes/history/2024', frontmatter: { title: 'H24', status: 'draft' }, body: '' },
+        { id: 'nodes/history-of-art', frontmatter: { title: 'Art', status: 'draft' }, body: '' },
+        { id: 'nodes/other', frontmatter: { title: 'O', status: 'draft' }, body: '' },
+      ]);
+
+      const { data } = await callJson('list_documents', { path: 'nodes/history' });
+
+      expect(data.map((d: { id: string }) => d.id)).toEqual(['nodes/history', 'nodes/history/2024']);
+    });
+  });
+
+  describe('search falls back to body-level matching', () => {
+    it('retries in full mode when the metadata index finds nothing', async () => {
+      mockGqeQuery
+        .mockResolvedValueOnce({ documents: [], sourceNodes: [], mode: 'graph', hopsUsed: 0, nodesTraversed: 0 })
+        .mockResolvedValueOnce({
+          documents: [{ id: 'nodes/auth', frontmatter: { title: 'Auth' }, body: 'term lives here' }],
+          sourceNodes: [],
+          mode: 'full',
+          hopsUsed: 1,
+          nodesTraversed: 1,
+        });
+
+      const { data } = await callJson('search', { query: 'term' });
+
+      expect(mockGqeQuery).toHaveBeenNthCalledWith(1, 'contextnest://search/term', { hops: 2, full: false });
+      expect(mockGqeQuery).toHaveBeenNthCalledWith(2, 'contextnest://search/term', { hops: 2, full: true });
+      expect(data.documents[0].id).toBe('nodes/auth');
+      expect(data.traversal.mode).toBe('full');
+    });
+
+    it('does not retry when the index already matched', async () => {
+      mockGqeQuery.mockResolvedValue({
+        documents: [{ id: 'nodes/a', frontmatter: { title: 'A' }, body: '' }],
+        sourceNodes: [],
+        mode: 'graph',
+        hopsUsed: 1,
+        nodesTraversed: 1,
+      });
+
+      await callJson('search', { query: 'term' });
+
+      expect(mockGqeQuery).toHaveBeenCalledOnce();
     });
   });
 
