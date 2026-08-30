@@ -72,6 +72,9 @@ mcp__skynest__read_document({ uri: "nodes/your/path" })
 
 // List all documents
 mcp__skynest__list_documents({ type: "document", status: "published" })
+
+// List one folder
+mcp__skynest__list_documents({ path: "nodes/history" })
 \`\`\`
 
 ## Saving Knowledge
@@ -80,7 +83,7 @@ Use this when asked to remember something, or when you complete work with
 lasting value:
 
 \`\`\`
-1. mcp__skynest__create_document({ path, title, type, tags, body })
+1. mcp__skynest__create_document({ path, title, description, type, tags, body })
 2. mcp__skynest__update_document({ path, body })   ← if document already exists
 3. mcp__skynest__publish_document({ path, author: "claude@claude.ai", note: "..." })
 \`\`\`
@@ -99,9 +102,9 @@ lasting value:
 | Filter by tag     | \`mcp__skynest__resolve\`           | \`selector\`, \`hops\`                  |
 | Read one doc      | \`mcp__skynest__read_document\`     | \`uri\`                               |
 | Read a pack       | \`mcp__skynest__read_pack\`         | \`id\`, \`hops\`                        |
-| List documents    | \`mcp__skynest__list_documents\`    | \`type\`, \`tag\`, \`status\`             |
-| Create new        | \`mcp__skynest__create_document\`   | \`path\`, \`title\`, \`type\`, \`tags\`, \`body\` |
-| Update existing   | \`mcp__skynest__update_document\`   | \`path\`, \`body\`                      |
+| List documents    | \`mcp__skynest__list_documents\`    | \`path\`, \`type\`, \`tag\`, \`status\`     |
+| Create new        | \`mcp__skynest__create_document\`   | \`path\`, \`title\`, \`description\`, \`type\`, \`tags\`, \`body\` |
+| Update existing   | \`mcp__skynest__update_document\`   | \`path\`, \`title\`, \`description\`, \`tags\`, \`body\` |
 | Publish/version   | \`mcp__skynest__publish_document\`  | \`path\`, \`note\`                      |
 | Audit trail       | \`mcp__skynest__verify_integrity\`  | —                                   |
 
