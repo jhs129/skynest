@@ -113,7 +113,7 @@ Note the **Client ID** and **Client Secret** — you'll need them in the next st
 pnpm oauth:gen-keypair
 ```
 
-This outputs `OAUTH_PRIVATE_KEY` and `OAUTH_PUBLIC_KEY` values for your environment.
+This outputs `OAUTH_JWT_PRIVATE_KEY` and `OAUTH_JWT_PUBLIC_KEY` values for your environment.
 
 ### 4. Deploy to Vercel
 
@@ -139,8 +139,8 @@ AUTH_SECRET=<random-32-char-string>    # openssl rand -base64 32
 NEXTAUTH_URL=https://<your-vercel-app>.vercel.app
 
 # OAuth JWT signing (from step 3)
-OAUTH_PRIVATE_KEY=<generated-private-key>
-OAUTH_PUBLIC_KEY=<generated-public-key>
+OAUTH_JWT_PRIVATE_KEY=<generated-private-key>
+OAUTH_JWT_PUBLIC_KEY=<generated-public-key>
 
 # Storage backend
 CONTEXTNEST_STORAGE=blob

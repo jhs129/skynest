@@ -54,8 +54,8 @@ pnpm install`}</CodeBlock>
           <p className="text-sm">
             Skynest issues RS256-signed JWTs for MCP OAuth. Generate the key pair and paste each
             full PEM block (including the <InlineCode>-----BEGIN...-----</InlineCode> lines) into
-            Vercel as <InlineCode>OAUTH_PRIVATE_KEY</InlineCode> and{' '}
-            <InlineCode>OAUTH_PUBLIC_KEY</InlineCode>:
+            Vercel as <InlineCode>OAUTH_JWT_PRIVATE_KEY</InlineCode> and{' '}
+            <InlineCode>OAUTH_JWT_PUBLIC_KEY</InlineCode>:
           </p>
           <CodeBlock>{`pnpm oauth:gen-keypair`}</CodeBlock>
         </SubSection>
@@ -81,8 +81,8 @@ AZURE_BLOB_CONTAINER=skynest          # optional, defaults to "skynest"`}</CodeB
         <SubSection title="5. Set the common environment variables">
           <CodeBlock>{`AUTH_SECRET=<random>                  # openssl rand -base64 32
 NEXTAUTH_URL=https://<your-app>.vercel.app
-OAUTH_PRIVATE_KEY=<from step 2>
-OAUTH_PUBLIC_KEY=<from step 2>
+OAUTH_JWT_PRIVATE_KEY=<from step 2>
+OAUTH_JWT_PUBLIC_KEY=<from step 2>
 
 # Primary document store (Vercel Blob)
 CONTEXTNEST_STORAGE=blob
