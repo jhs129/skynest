@@ -1,6 +1,6 @@
 // Loads the OAuth signing keypair from env and exposes JWKS for clients.
-// The script `pnpm oauth:gen-keypair` prints values for OAUTH_PRIVATE_KEY,
-// OAUTH_PUBLIC_KEY, and OAUTH_KID; paste those into Vercel env.
+// The script `pnpm oauth:gen-keypair` prints values for OAUTH_JWT_PRIVATE_KEY,
+// OAUTH_JWT_PUBLIC_KEY, and OAUTH_KID; paste those into Vercel env.
 import { importPKCS8, importSPKI, exportJWK, type JWK, type KeyObject } from 'jose';
 import { OAUTH_ALGORITHM } from './config';
 

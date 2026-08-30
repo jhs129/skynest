@@ -50,8 +50,8 @@ const GROUPS: EnvGroup[] = [
   {
     title: 'OAuth token signing & registration',
     vars: [
-      { name: 'OAUTH_PRIVATE_KEY', req: 'required', description: 'RS256 private key (full PEM) used to sign authorization codes and access tokens. From pnpm oauth:gen-keypair.' },
-      { name: 'OAUTH_PUBLIC_KEY', req: 'required', description: 'RS256 public key (full PEM) used to verify self-issued tokens and published as JWKS.' },
+      { name: 'OAUTH_JWT_PRIVATE_KEY', req: 'required', description: 'RS256 private key (full PEM) used to sign authorization codes and access tokens. From pnpm oauth:gen-keypair.' },
+      { name: 'OAUTH_JWT_PUBLIC_KEY', req: 'required', description: 'RS256 public key (full PEM) used to verify self-issued tokens and published as JWKS.' },
       { name: 'ACCESS_TOKEN_TTL_SECONDS', req: 'optional', default: '604800 (7 days)', description: 'Lifetime of issued OAuth access tokens.' },
       { name: 'OAUTH_REGISTRATION_SECRET', req: 'optional', description: 'If set, dynamic client registration requires a matching Bearer token. If unset, registration falls back to loopback / allowlisted-origin checks.' },
       { name: 'OAUTH_ALLOWED_REDIRECT_ORIGINS', req: 'optional', default: "'' (loopback only)", description: 'Comma-separated HTTPS origins allowed as redirect URIs during registration (e.g. https://claude.ai for the Claude Desktop app).' },
