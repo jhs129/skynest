@@ -16,6 +16,12 @@ import {
   parseUri,
 } from '@promptowl/contextnest-engine';
 import type { Frontmatter, RbacHook } from '@promptowl/contextnest-engine';
+import {
+  NODE_TYPES,
+  SKILL_OUTPUT_FORMATS,
+  applyTypedBlocks,
+  sourceBlockSchema,
+} from './typed-blocks';
 import { createEngine } from '@/lib/vault/index';
 import { readSkillsConfig } from '@/lib/vault/skills-config';
 import {
@@ -668,21 +674,7 @@ export function registerTools(server: McpServer): void {
         .describe(
           'Short summary (1–500 chars) shown in listings and indexed for search. Changeable later with update_document.',
         ),
-      type: z
-        .enum([
-          'document',
-          'snippet',
-          'glossary',
-          'persona',
-          'prompt',
-          'source',
-          'tool',
-          'reference',
-          'skill',
-        ])
-        .optional()
-        .default('document')
-        .describe('Node type'),
+      type: z.enum(NODE_TYPES).optional().default('document').describe('Node type'),
       tags: z.array(z.string()).optional().describe('Tags for the document'),
       body: z.string().optional().describe('Markdown body content'),
       content: z
@@ -698,12 +690,29 @@ export function registerTools(server: McpServer): void {
         .optional()
         .describe('Tools required for skill execution'),
       output_format: z
-        .enum(['markdown', 'json', 'text', 'code'])
+        .enum(SKILL_OUTPUT_FORMATS)
         .optional()
         .describe('Skill output format'),
+      source: sourceBlockSchema
+        .optional()
+        .describe(
+          "Source block — REQUIRED when type is 'source', and rejected on every other type. Describes how an agent fetches the live data this node stands for.",
+        ),
     },
     async (
-      { path, title, description, type, tags, body, content: bodyAlias, trigger, tools_required, output_format },
+      {
+        path,
+        title,
+        description,
+        type,
+        tags,
+        body,
+        content: bodyAlias,
+        trigger,
+        tools_required,
+        output_format,
+        source,
+      },
       ctx,
     ) => {
       const permErr = requireWriteScope(ctx.authInfo);
@@ -742,15 +751,15 @@ export function registerTools(server: McpServer): void {
         ...(tagList ? { tags: tagList } : {}),
       };
 
-      if (type === 'skill') {
-        frontmatter.skill = {
-          trigger: trigger ?? `when asked to ${title.toLowerCase()}`,
-          inputs: [],
-          tools_required: tools_required ?? [],
-          output_format: output_format ?? 'markdown',
-          guard_rails: [],
-        };
-      }
+      const blocks = applyTypedBlocks(frontmatter, {
+        type,
+        source,
+        trigger,
+        tools_required,
+        output_format,
+        defaultTrigger: `when asked to ${title.toLowerCase()}`,
+      });
+      if (!blocks.ok) return errorResult(blocks.error);
 
       const node = {
         id,
@@ -759,6 +768,28 @@ export function registerTools(server: McpServer): void {
         body: resolvedBody.body ? `\n${resolvedBody.body}\n` : `\n# ${title}\n\n`,
         rawContent: '',
       };
+
+      // Validate BEFORE the write, not after. Create used to skip validation
+      // entirely, so a node that could never pass it — type: source with no
+      // source block — was written and published anyway, and then failed every
+      // update it was ever given. Checking here means an invalid create fails
+      // outright and leaves nothing on disk to clean up.
+      const validation = validateDocument(node);
+      if (!validation.valid) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                { error: 'Validation failed', errors: validation.errors },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
 
       const content = serializeDocument(node);
       await storage.writeDocument(id, content);
@@ -824,8 +855,47 @@ export function registerTools(server: McpServer): void {
         .string()
         .optional()
         .describe('Alias for `body`. Pass one or the other, not both.'),
+      type: z
+        .enum(NODE_TYPES)
+        .optional()
+        .describe(
+          'New node type. Re-typing to or from source/skill also needs that type\'s block in the same call — source for a source node, trigger for a skill node.',
+        ),
+      source: sourceBlockSchema
+        .optional()
+        .describe(
+          "Replacement source block. Valid only on a node that is (or is becoming) type: source; replaces the block wholesale.",
+        ),
+      trigger: z
+        .string()
+        .optional()
+        .describe("New skill trigger. Valid only on a node that is (or is becoming) type: skill."),
+      tools_required: z
+        .array(z.string())
+        .optional()
+        .describe('New skill tools_required list (replaces existing)'),
+      output_format: z
+        .enum(SKILL_OUTPUT_FORMATS)
+        .optional()
+        .describe('New skill output format'),
     },
-    async ({ path, title, description, tags, status, body, content: bodyAlias }, ctx) => {
+    async (
+      {
+        path,
+        title,
+        description,
+        tags,
+        status,
+        body,
+        content: bodyAlias,
+        type,
+        source,
+        trigger,
+        tools_required,
+        output_format,
+      },
+      ctx,
+    ) => {
       const permErr = requireWriteScope(ctx.authInfo);
       if (permErr) return permErr;
 
@@ -838,10 +908,15 @@ export function registerTools(server: McpServer): void {
         description === undefined &&
         tags === undefined &&
         status === undefined &&
-        newBody === undefined
+        newBody === undefined &&
+        type === undefined &&
+        source === undefined &&
+        trigger === undefined &&
+        tools_required === undefined &&
+        output_format === undefined
       ) {
         return errorResult(
-          'Nothing to update: pass at least one of title, description, tags, status, or body. Publishing an unchanged document is publish_document.',
+          'Nothing to update: pass at least one of title, description, tags, status, body, type, source, trigger, tools_required or output_format. Publishing an unchanged document is publish_document.',
         );
       }
 
@@ -860,6 +935,9 @@ export function registerTools(server: McpServer): void {
         tags: JSON.stringify(doc.frontmatter.tags ?? null),
         status: doc.frontmatter.status,
         body: doc.body,
+        type: doc.frontmatter.type,
+        source: JSON.stringify(doc.frontmatter.source ?? null),
+        skill: JSON.stringify(doc.frontmatter.skill ?? null),
       };
 
       if (title !== undefined) doc.frontmatter.title = title;
@@ -875,12 +953,30 @@ export function registerTools(server: McpServer): void {
         doc.body = `\n${newBody}\n`;
       }
 
+      // The typed blocks are settled against the node's post-write type — the
+      // one passed in this call, or the one it already has. Without this an
+      // existing `type: source` node has no way to gain the source block rule 9
+      // demands, and every update it is ever given fails validation.
+      const nextType = type ?? doc.frontmatter.type ?? 'document';
+      if (type !== undefined) doc.frontmatter.type = nextType;
+      const blocks = applyTypedBlocks(doc.frontmatter, {
+        type: nextType,
+        source,
+        trigger,
+        tools_required,
+        output_format,
+      });
+      if (!blocks.ok) return errorResult(blocks.error);
+
       const unchanged =
         doc.frontmatter.title === before.title &&
         doc.frontmatter.description === before.description &&
         JSON.stringify(doc.frontmatter.tags ?? null) === before.tags &&
         doc.frontmatter.status === before.status &&
-        doc.body === before.body;
+        doc.body === before.body &&
+        doc.frontmatter.type === before.type &&
+        JSON.stringify(doc.frontmatter.source ?? null) === before.source &&
+        JSON.stringify(doc.frontmatter.skill ?? null) === before.skill;
 
       if (unchanged) {
         return jsonResult({
