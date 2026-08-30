@@ -91,6 +91,11 @@ lasting value:
 **Document types:** \`document\`, \`snippet\`, \`glossary\`, \`persona\`, \`prompt\`,
 \`source\`, \`tool\`, \`reference\`, \`skill\`
 
+**Typed blocks:** \`source\` nodes require a \`source\` parameter
+(\`{ transport, server?, tools: [...] }\`) and \`skill\` nodes require a
+\`trigger\`. Both create and update accept them, and \`update_document\` takes
+\`type\` so a node can be re-typed and have its block swapped in one call.
+
 **Always publish after creating/updating** — drafts are not visible to AI agents.
 
 ## Quick Reference
@@ -104,7 +109,7 @@ lasting value:
 | Read a pack       | \`mcp__skynest__read_pack\`         | \`id\`, \`hops\`                        |
 | List documents    | \`mcp__skynest__list_documents\`    | \`path\`, \`type\`, \`tag\`, \`status\`     |
 | Create new        | \`mcp__skynest__create_document\`   | \`path\`, \`title\`, \`description\`, \`type\`, \`tags\`, \`body\` |
-| Update existing   | \`mcp__skynest__update_document\`   | \`path\`, \`title\`, \`description\`, \`tags\`, \`body\` |
+| Update existing   | \`mcp__skynest__update_document\`   | \`path\`, \`title\`, \`description\`, \`tags\`, \`body\`, \`type\`, \`source\` |
 | Publish/version   | \`mcp__skynest__publish_document\`  | \`path\`, \`note\`                      |
 | Audit trail       | \`mcp__skynest__verify_integrity\`  | —                                   |
 

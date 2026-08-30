@@ -67,6 +67,9 @@ vi.mock('@promptowl/contextnest-engine', () => {
     validateDocument: vi.fn().mockReturnValue({ valid: true, errors: [] }),
     serializeDocument: vi.fn().mockReturnValue('---\ntitle: Test\n---\n\nBody\n'),
     parseUri: vi.fn().mockImplementation((uri: string) => ({ path: uri.replace('contextnest://', '') })),
+    // Real value, not a stub: typed-blocks builds a zod enum out of it at
+    // module load, so an undefined export would throw before any test runs.
+    TRANSPORTS: ['mcp', 'rest', 'cli', 'function'] as const,
   };
 });
 
@@ -507,6 +510,224 @@ describe('registerTools', () => {
       expect(result.isError).toBe(true);
       const data = JSON.parse(result.content[0].text);
       expect(data.error).toMatch(/already exists/);
+    });
+  });
+
+  describe('source nodes round-trip through create and update', () => {
+    const SOURCE = { transport: 'mcp', server: 'harvest', tools: ['list_projects'] };
+
+    function armCreate(frontmatter: Record<string, unknown>) {
+      mockStorage.readDocument.mockRejectedValueOnce(new Error('not found'));
+      mockStorage.writeDocument.mockResolvedValue(undefined);
+      return armPublishAs('nodes/src', frontmatter);
+    }
+
+    async function armPublishAs(id: string, frontmatter: Record<string, unknown>) {
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+      vi.mocked(publishDocument).mockResolvedValue({
+        node: { id, frontmatter, body: '', filePath: '', rawContent: '' },
+        checkpointNumber: 1,
+        versionEntry: {
+          chain_hash: 'h', version: 2, content_hash: 'c',
+          edited_by: 'testuser', keyframe: false, edited_at: '2024-01-01T00:00:00.000Z',
+        },
+      } as never);
+      return publishDocument;
+    }
+
+    it('creates a source node carrying its block, and the block survives to the write', async () => {
+      await armCreate({ title: 'Src', type: 'source', source: SOURCE, version: 1 });
+      const { serializeDocument } = await import('@promptowl/contextnest-engine');
+
+      const { data, isError } = await callJson('create_document', {
+        path: 'nodes/src',
+        title: 'Src',
+        type: 'source',
+        source: SOURCE,
+      });
+
+      expect(isError).toBe(false);
+      expect(data.message).toMatch(/created and published/);
+      expect(vi.mocked(serializeDocument).mock.calls[0][0]).toMatchObject({
+        frontmatter: { type: 'source', source: SOURCE },
+      });
+    });
+
+    it('refuses a source node with no block and writes nothing', async () => {
+      mockStorage.readDocument.mockRejectedValueOnce(new Error('not found'));
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+
+      const { data, isError } = await callJson('create_document', {
+        path: 'nodes/src',
+        title: 'Src',
+        type: 'source',
+      });
+
+      expect(isError).toBe(true);
+      expect(data.error).toMatch(/rule 9/);
+      expect(mockStorage.writeDocument).not.toHaveBeenCalled();
+      expect(publishDocument).not.toHaveBeenCalled();
+      expect(mockStorage.deleteDocument).not.toHaveBeenCalled();
+    });
+
+    it('fails create loudly when validation rejects the node, leaving nothing behind', async () => {
+      mockStorage.readDocument.mockRejectedValueOnce(new Error('not found'));
+      const { validateDocument, publishDocument } = await import('@promptowl/contextnest-engine');
+      vi.mocked(validateDocument).mockReturnValueOnce({
+        valid: false,
+        errors: [{ field: 'source.tools', message: 'at least one tool required' }],
+      } as never);
+
+      const { data, isError } = await callJson('create_document', {
+        path: 'nodes/src',
+        title: 'Src',
+        type: 'source',
+        source: { transport: 'mcp', tools: [] },
+      });
+
+      expect(isError).toBe(true);
+      expect(data.error).toBe('Validation failed');
+      expect(mockStorage.writeDocument).not.toHaveBeenCalled();
+      expect(publishDocument).not.toHaveBeenCalled();
+    });
+
+    it('repairs a source node that was created without a block', async () => {
+      // Exactly the state the bug produced: type: source, no source block.
+      const broken = {
+        id: 'nodes/src',
+        frontmatter: { title: 'Src', type: 'source', status: 'draft', version: 1 },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      };
+      mockStorage.readDocument.mockResolvedValue(broken);
+      await armPublishAs('nodes/src', { ...broken.frontmatter, source: SOURCE });
+
+      const { data, isError } = await callJson('update_document', {
+        path: 'nodes/src',
+        source: SOURCE,
+      });
+
+      expect(isError).toBe(false);
+      expect(data.changed).toBe(true);
+      expect(broken.frontmatter).toMatchObject({ type: 'source', source: SOURCE });
+    });
+
+    it('reports a source-block edit as a change rather than a no-op', async () => {
+      const doc = {
+        id: 'nodes/src',
+        frontmatter: { title: 'Src', type: 'source', status: 'draft', version: 1, source: SOURCE },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      };
+      mockStorage.readDocument.mockResolvedValue(doc);
+      await armPublishAs('nodes/src', doc.frontmatter);
+
+      const { data } = await callJson('update_document', {
+        path: 'nodes/src',
+        source: { ...SOURCE, server: 'bigearnie' },
+      });
+
+      expect(data.changed).toBe(true);
+      expect(doc.frontmatter.source).toMatchObject({ server: 'bigearnie' });
+    });
+
+    it('still reports an identical source block as unchanged', async () => {
+      const doc = {
+        id: 'nodes/src',
+        frontmatter: { title: 'Src', type: 'source', status: 'draft', version: 1, source: SOURCE },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      };
+      mockStorage.readDocument.mockResolvedValue(doc);
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+
+      const { data } = await callJson('update_document', { path: 'nodes/src', source: { ...SOURCE } });
+
+      expect(data.changed).toBe(false);
+      expect(publishDocument).not.toHaveBeenCalled();
+    });
+
+    it('re-types document → source in one call', async () => {
+      const doc = {
+        id: 'nodes/src',
+        frontmatter: { title: 'Src', type: 'document', status: 'draft', version: 1 },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      };
+      mockStorage.readDocument.mockResolvedValue(doc);
+      await armPublishAs('nodes/src', { ...doc.frontmatter, type: 'source', source: SOURCE });
+
+      const { isError } = await callJson('update_document', {
+        path: 'nodes/src',
+        type: 'source',
+        source: SOURCE,
+      });
+
+      expect(isError).toBe(false);
+      expect(doc.frontmatter).toMatchObject({ type: 'source', source: SOURCE });
+    });
+
+    it('re-types source → document and drops the block (rule 17)', async () => {
+      const doc = {
+        id: 'nodes/src',
+        frontmatter: { title: 'Src', type: 'source', status: 'draft', version: 1, source: SOURCE },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      };
+      mockStorage.readDocument.mockResolvedValue(doc);
+      await armPublishAs('nodes/src', { title: 'Src', type: 'document', status: 'draft', version: 2 });
+
+      const { isError } = await callJson('update_document', { path: 'nodes/src', type: 'document' });
+
+      expect(isError).toBe(false);
+      expect(doc.frontmatter.type).toBe('document');
+      expect(doc.frontmatter.source).toBeUndefined();
+    });
+
+    it('rejects a source block aimed at a node that stays type: document (rule 17)', async () => {
+      mockStorage.readDocument.mockResolvedValue({
+        id: 'nodes/plain',
+        frontmatter: { title: 'Plain', type: 'document', status: 'draft', version: 1 },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      });
+      const { publishDocument } = await import('@promptowl/contextnest-engine');
+
+      const { data, isError } = await callJson('update_document', {
+        path: 'nodes/plain',
+        source: SOURCE,
+      });
+
+      expect(isError).toBe(true);
+      expect(data.error).toMatch(/rule 17/);
+      expect(publishDocument).not.toHaveBeenCalled();
+    });
+
+    it('leaves a hand-seeded source node alone on an unrelated edit', async () => {
+      const doc = {
+        id: 'nodes/src',
+        frontmatter: { title: 'Src', type: 'source', status: 'draft', version: 1, source: SOURCE },
+        body: '\nold\n',
+        filePath: '',
+        rawContent: '',
+      };
+      mockStorage.readDocument.mockResolvedValue(doc);
+      await armPublishAs('nodes/src', doc.frontmatter);
+
+      const { data, isError } = await callJson('update_document', {
+        path: 'nodes/src',
+        title: 'Renamed',
+      });
+
+      expect(isError).toBe(false);
+      expect(data.changed).toBe(true);
+      expect(doc.frontmatter.source).toEqual(SOURCE);
     });
   });
 
