@@ -173,17 +173,12 @@ AUTHZ_ENTRA_READ_GROUP_ID=<group-id>[,<group-id>...]   # members get mcp:read on
 # behavior exactly as-is.
 MCP_TRUSTED_ISSUER=https://login.microsoftonline.com/<tenant-guid>/v2.0
 MCP_TRUSTED_AUDIENCE=api://<skynest-entra-app-id>   # from that app registration's "Expose an API" Identifier URI
-
-# Optional — also accept a pre-shared secret as a bearer token, for headless
-# agents that have no interactive user and no browser (so can't do the GitHub
-# OAuth login flow). Leave unset to keep today's behavior exactly as-is.
-MCP_BOT_TOKEN=<random-shared-secret>     # the token the headless agent presents as its bearer token
-MCP_BOT_LOGIN=skynest-bot                # optional, defaults to "skynest-bot" — attribution identity for its vault writes
+# (no env var needed for GitHub-mode headless agents — see "Headless agents" below)
 
 # read.ai webhook (optional — only needed if using the webhook integration)
 WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path
 READ_AI_SIGNING_KEY=<hmac-key>     # from the read.ai dashboard
-BOT_GITHUB_TOKEN=<github-pat>      # PAT with repo scope, for bot vault writes (also used for MCP_BOT_TOKEN attribution above)
+BOT_GITHUB_TOKEN=<github-pat>      # PAT with repo scope, for bot vault writes
 ```
 
 ### 6. Provision Vercel Blob
@@ -262,6 +257,13 @@ Reload Cursor. On first use, a browser window will open for GitHub OAuth sign-in
 ### Other MCP-compatible tools
 
 Skynest exposes a standard MCP HTTP endpoint with OAuth 2.1. Any tool that supports MCP over HTTP with OAuth 2.1 should work — use `https://YOUR_SKYNEST_URL/api/mcp` as the endpoint.
+
+### Headless agents (no browser, no interactive login)
+
+A deployed agent that can't do the interactive GitHub OAuth flow can still call the MCP endpoint directly, using its own credential as the bearer token — no separate secret or config needed:
+
+- **`AUTH_PROVIDER=github` instances**: present a real GitHub PAT (fine-grained, scoped to the vault repo) as the bearer token. Skynest checks that PAT's actual push/pull access on `AUTHZ_GITHUB_REPO` live against the GitHub API — the same check an interactive user's token gets — and, if it has access, uses that same token to attribute and commit its own vault writes. There's nothing to configure beyond giving the agent's GitHub identity collaborator access to the repo, same as any human user.
+- **`AUTH_PROVIDER=entra` instances**: register the agent as its own Entra app (or use an existing one) and have it mint a token via the client-credentials grant, then set `MCP_TRUSTED_ISSUER`/`MCP_TRUSTED_AUDIENCE` (see above) so that token is accepted. Put the app in one of the configured `AUTHZ_ENTRA_*_GROUP_ID` groups (or grant it an app role your authorization check recognizes) for read/write access.
 
 ---
 

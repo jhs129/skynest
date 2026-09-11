@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'crypto';
 import { decodeJwt, jwtVerify } from 'jose';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getPublicKey } from '@/lib/oauth/keys';
@@ -51,28 +50,58 @@ async function verifySelfIssuedToken(token: string, resourceUrl: string): Promis
   };
 }
 
-function timingSafeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
+// Headless/service callers (deployed agents with no interactive login, so no
+// GitHub OAuth dance) present their own real GitHub PAT as the bearer token —
+// the same kind of repo-scoped token an interactive user's session carries
+// after signing in. This mirrors exactly what src/app/oauth/token/route.ts
+// does at token-exchange time for interactive users: check real GitHub access
+// with the caller's own token, then pass that same token through as
+// extra.userToken so commits are attributed to the real identity behind it.
+//
+// Only applies when this instance's authorization model understands GitHub
+// tokens at all (AUTH_PROVIDER=github, the default). A raw PAT is never a
+// valid JWT, so decodeJwt failing is what identifies "this might be a PAT" —
+// anything JWT-shaped is left untouched for the paths below. Any failure here
+// (no access, GitHub API rejects it, wrong AUTH_PROVIDER) simply falls through
+// to verifySelfIssuedToken, which will reject a non-JWT string — so this can
+// only grant access, never silently bypass the existing checks.
+async function verifyGitHubPatToken(token: string): Promise<AuthInfo | undefined> {
+  if ((process.env.AUTH_PROVIDER ?? 'github') !== 'github') return undefined;
 
-// Headless/service callers (deployed agents with no interactive login) present a
-// pre-shared secret — MCP_BOT_TOKEN — as their bearer token instead of a JWT.
-// Unset or non-matching tokens fall through to the JWT paths below, which will
-// reject them, so this is purely additive and never weakens the existing checks.
-function verifyBotToken(token: string): AuthInfo | undefined {
-  const botToken = process.env.MCP_BOT_TOKEN;
-  if (!botToken || !timingSafeCompare(token, botToken)) return undefined;
+  try {
+    decodeJwt(token);
+    return undefined; // JWT-shaped — not a PAT candidate, let the JWT paths handle it
+  } catch {
+    // not a JWT — proceed to validate it as a real GitHub token
+  }
 
-  const botLogin = process.env.MCP_BOT_LOGIN ?? 'skynest-bot';
+  let access;
+  try {
+    access = await createAuthorizationProvider().checkAccess({ idpAccessToken: token });
+  } catch {
+    return undefined;
+  }
+  if (access === 'none') return undefined;
+
+  const userRes = await fetch('https://api.github.com/user', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!userRes.ok) return undefined;
+  const { login } = (await userRes.json()) as { login?: string };
+  if (!login) return undefined;
+
   const extra: Record<string, unknown> = {
-    userToken: process.env.BOT_GITHUB_TOKEN ?? '',
-    userLogin: botLogin,
+    userToken: token,
+    userLogin: login,
   };
   return {
     token,
-    clientId: botLogin,
-    scopes: ['mcp:read', 'mcp:write'],
+    clientId: login,
+    scopes: access === 'write' ? ['mcp:read', 'mcp:write'] : ['mcp:read'],
     extra,
   };
 }
@@ -122,7 +151,7 @@ export async function verifyMcpToken(
   if (AUTH_DISABLED) return devBypassAuthInfo();
   if (!token) return undefined;
 
-  const botAuthInfo = verifyBotToken(token);
+  const botAuthInfo = await verifyGitHubPatToken(token);
   if (botAuthInfo) return botAuthInfo;
 
   const trustedIssuer = process.env.MCP_TRUSTED_ISSUER;
