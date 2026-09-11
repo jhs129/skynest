@@ -174,10 +174,16 @@ AUTHZ_ENTRA_READ_GROUP_ID=<group-id>[,<group-id>...]   # members get mcp:read on
 MCP_TRUSTED_ISSUER=https://login.microsoftonline.com/<tenant-guid>/v2.0
 MCP_TRUSTED_AUDIENCE=api://<skynest-entra-app-id>   # from that app registration's "Expose an API" Identifier URI
 
+# Optional — also accept a pre-shared secret as a bearer token, for headless
+# agents that have no interactive user and no browser (so can't do the GitHub
+# OAuth login flow). Leave unset to keep today's behavior exactly as-is.
+MCP_BOT_TOKEN=<random-shared-secret>     # the token the headless agent presents as its bearer token
+MCP_BOT_LOGIN=skynest-bot                # optional, defaults to "skynest-bot" — attribution identity for its vault writes
+
 # read.ai webhook (optional — only needed if using the webhook integration)
 WEBHOOK_API_KEY=<secret-key>       # included in the webhook URL path
 READ_AI_SIGNING_KEY=<hmac-key>     # from the read.ai dashboard
-BOT_GITHUB_TOKEN=<github-pat>      # PAT with repo scope, for bot vault writes
+BOT_GITHUB_TOKEN=<github-pat>      # PAT with repo scope, for bot vault writes (also used for MCP_BOT_TOKEN attribution above)
 ```
 
 ### 6. Provision Vercel Blob
