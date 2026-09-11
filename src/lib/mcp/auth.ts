@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 import { decodeJwt, jwtVerify } from 'jose';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getPublicKey } from '@/lib/oauth/keys';
@@ -50,6 +51,32 @@ async function verifySelfIssuedToken(token: string, resourceUrl: string): Promis
   };
 }
 
+function timingSafeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+// Headless/service callers (deployed agents with no interactive login) present a
+// pre-shared secret — MCP_BOT_TOKEN — as their bearer token instead of a JWT.
+// Unset or non-matching tokens fall through to the JWT paths below, which will
+// reject them, so this is purely additive and never weakens the existing checks.
+function verifyBotToken(token: string): AuthInfo | undefined {
+  const botToken = process.env.MCP_BOT_TOKEN;
+  if (!botToken || !timingSafeCompare(token, botToken)) return undefined;
+
+  const botLogin = process.env.MCP_BOT_LOGIN ?? 'skynest-bot';
+  const extra: Record<string, unknown> = {
+    userToken: process.env.BOT_GITHUB_TOKEN ?? '',
+    userLogin: botLogin,
+  };
+  return {
+    token,
+    clientId: botLogin,
+    scopes: ['mcp:read', 'mcp:write'],
+    extra,
+  };
+}
+
 async function verifyExternalToken(token: string): Promise<AuthInfo> {
   const issuer = process.env.MCP_TRUSTED_ISSUER as string;
   const audience = process.env.MCP_TRUSTED_AUDIENCE;
@@ -94,6 +121,9 @@ export async function verifyMcpToken(
 ): Promise<AuthInfo | undefined> {
   if (AUTH_DISABLED) return devBypassAuthInfo();
   if (!token) return undefined;
+
+  const botAuthInfo = verifyBotToken(token);
+  if (botAuthInfo) return botAuthInfo;
 
   const trustedIssuer = process.env.MCP_TRUSTED_ISSUER;
   if (trustedIssuer) {

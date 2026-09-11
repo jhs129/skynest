@@ -274,6 +274,62 @@ describe('verifyMcpToken with a trusted external issuer', () => {
   });
 });
 
+describe('verifyMcpToken with a bot service token', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.MCP_BOT_TOKEN = 'bot-secret-value';
+    process.env.BOT_GITHUB_TOKEN = 'ghp_bot_pat';
+  });
+
+  afterEach(() => {
+    delete process.env.MCP_BOT_TOKEN;
+    delete process.env.MCP_BOT_LOGIN;
+    delete process.env.BOT_GITHUB_TOKEN;
+  });
+
+  it('accepts a matching bot token and returns write-capable AuthInfo attributed to the bot login', async () => {
+    process.env.MCP_BOT_LOGIN = 'skynest-agent';
+    const { verifyMcpToken } = await import('./auth.js');
+
+    const result = await verifyMcpToken('bot-secret-value', 'https://example.com/api/mcp');
+
+    expect(result?.clientId).toBe('skynest-agent');
+    expect(result?.scopes).toEqual(['mcp:read', 'mcp:write']);
+    expect(result?.extra).toMatchObject({
+      userToken: 'ghp_bot_pat',
+      userLogin: 'skynest-agent',
+    });
+  });
+
+  it('defaults the bot login to "skynest-bot" when MCP_BOT_LOGIN is unset', async () => {
+    const { verifyMcpToken } = await import('./auth.js');
+
+    const result = await verifyMcpToken('bot-secret-value', 'https://example.com/api/mcp');
+
+    expect(result?.clientId).toBe('skynest-bot');
+    expect(result?.extra).toMatchObject({ userLogin: 'skynest-bot' });
+  });
+
+  it('falls through to existing JWT verification (and rejects) when the presented token does not match MCP_BOT_TOKEN', async () => {
+    const { getPublicKey } = await import('@/lib/oauth/keys');
+    vi.mocked(getPublicKey).mockClear();
+    const { verifyMcpToken } = await import('./auth.js');
+
+    await expect(
+      verifyMcpToken('not-the-bot-secret', 'https://example.com/api/mcp'),
+    ).rejects.toThrow();
+  });
+
+  it('falls through to existing JWT verification (and rejects) when MCP_BOT_TOKEN is unset', async () => {
+    delete process.env.MCP_BOT_TOKEN;
+    const { verifyMcpToken } = await import('./auth.js');
+
+    await expect(
+      verifyMcpToken('bot-secret-value', 'https://example.com/api/mcp'),
+    ).rejects.toThrow();
+  });
+});
+
 describe('verifyMcpToken routing when MCP_TRUSTED_ISSUER is unset', () => {
   it('still verifies self-issued tokens exactly as before (regression guard)', async () => {
     vi.resetModules();
