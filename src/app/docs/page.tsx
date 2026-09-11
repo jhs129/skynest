@@ -10,6 +10,8 @@ import { DocsSkill } from '@/components/docs/DocsSkill';
 import { DocsMcpTools } from '@/components/docs/DocsMcpTools';
 import { DocsWebhook } from '@/components/docs/DocsWebhook';
 import { DocsLocalDev } from '@/components/docs/DocsLocalDev';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
+import { isPublicHomepageEnabled } from '@/lib/config/instance-mode';
 
 export const metadata: Metadata = {
   title: 'Docs — Skynest',
@@ -30,6 +32,10 @@ const TOC = [
 ];
 
 export default function DocsPage() {
+  if (!isPublicHomepageEnabled()) {
+    return <SignInPrompt description="This is a private Skynest instance." />;
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
