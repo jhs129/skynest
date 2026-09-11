@@ -117,6 +117,12 @@ const GROUPS: EnvGroup[] = [
     ],
   },
   {
+    title: 'Instance mode',
+    vars: [
+      { name: 'PUBLIC_HOMEPAGE', req: 'optional', default: 'true', description: "Set to 'false' to hide the marketing/connection-instructions content on /, /faq, and /docs behind a sign-in prompt (using the same GitHub/Entra credential as the MCP server). Use this for a privately-deployed instance that shouldn't publicly advertise how to connect." },
+    ],
+  },
+  {
     title: 'Local development & escape hatch',
     note: 'Never set MCP_AUTH_DISABLED in a production deployment. See Local development.',
     vars: [

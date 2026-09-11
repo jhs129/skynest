@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
+import { isPublicHomepageEnabled } from '@/lib/config/instance-mode';
 
 export const metadata: Metadata = {
   title: 'FAQ — Skynest',
@@ -25,6 +27,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function FaqPage() {
+  if (!isPublicHomepageEnabled()) {
+    return <SignInPrompt description="This is a private Skynest instance." />;
+  }
+
   return (
     <div className="space-y-12">
       <div className="space-y-2">
