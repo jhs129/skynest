@@ -31,8 +31,12 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Claude Code local session data (worktrees, settings)
-.claude/
+# Claude Code local session data (worktrees, local settings) — but keep the
+# project-level hooks/settings that are meant to be shared/checked in
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 
 # Logs
 *.log
